@@ -71,3 +71,8 @@ The API should then generate two files:
 
 * .json description of a competition
 * .py model code (you may need to remove <"Code"> and <"/Code"> tags from top and bottom respectively).
+
+
+# P.S.
+
+The RAG does seem to do most of the tasks with only one attempt. However, the bigger problem is to ensure it does consistently and follow the correct TF Keras code.
