@@ -75,4 +75,4 @@ The API should then generate two files:
 
 # P.S.
 
-The RAG does seem to do most of the tasks with only one attempt. However, the bigger problem is to ensure it does consistently and follow the correct TF Keras code.
+The RAG does seem to do most of the tasks with only one attempt and sometimes the score is 10% - 15% better. However, the bigger problem is to ensure it does consistently and follow the correct TF Keras code.
