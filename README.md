@@ -1,1 +1,69 @@
-# REU
+## Dependencies 
+
+This is a critical part, because you need to ensure that the libraries are of correct version so that venv has everything needed to run. Before running the API, please install the requirements from req.txt.
+
+```
+pip3 install -r req.txt
+```
+
+The above requirements file should include all of the needed libraries. However, in case if you run in to issues with Kaggle, please run the its library installation with sudo.
+
+```
+sudo pip3 install kaggle
+```
+
+## ChatGPT - API Key
+Next, dont forget to add the API key to the directory
+1. Create a .env file
+2. Add this 
+```
+OPENAI_API_KEY = sk-...
+```
+
+
+## Kaggle Configuration
+Finally, don't forget to add your .kaggle configuration file. 
+
+For Ubuntu:
+```
+~/config/kaggle/.kaggle
+```
+
+The directory may vary depending on the system. 
+## Collecting and Structuring Notebooks
+
+Before we can even compare to any notebooks, we first need to get at least a small dataset. Therefore, we need to collect competitions, their metadata, its datasets and solutions. First, it parses each competition's html page and strips it to text. Next, downloads the dataset (train.csv file), runs it through a summarization function and provides a dense summary of the dataset. It is then sent to an LLM to provide as a much more dense but still helpful summary. It then filters the notebooks section of every single competition by TensorFlow and PyTorch. The resulting notebooks are then sent through an LLM for more deep analysis, for example if the LLM understands that the notebook uses a Machine Learning algorithms, it skips that notebooks and moves on. 
+
+```
+python3 sim_sol.py collect_and_structured
+```
+
+
+## Building and Encoded Matrix From the Notebooks Metadata
+
+Since we now have at least some solutions to compare to, our next step is to build an encoded matrix for the later comparison.
+
+```
+python3 sim_sol.py build_index
+```
+
+## Building the Code for a New Competition
+
+The final step to find the notebooks solutions that are as close as possible to our new competition. Now, the API will find top-k solutions similar to the provided competition, and append them to our next LLM prompt. 
+
+```
+python3 sim_sol.py auto_solve_code <competition-slug> <class_column> <#top-k>
+```
+
+competition-slug - a part of a link, something like playground-series-s5e4
+
+class_column - can be found in the Data section of a competition (e.g Listening_Time_minutes) 
+
+<#top-k> - top-k solution you would like to feed into the LLM for relying
+
+## Results
+
+The API should then generate two files: 
+
+* .json description of a competition
+* .py model code (you may need to remove <"Code"> and <"/Code"> tags from top and bottom respectively).
