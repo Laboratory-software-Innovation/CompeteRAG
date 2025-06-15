@@ -36,7 +36,7 @@ from huggingface_hub import InferenceApi
 import openai
 import tiktoken
 
-from selenium_helper import init_selenium_driver
+from selenium_firefox import init_selenium_driver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
