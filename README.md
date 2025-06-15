@@ -12,6 +12,8 @@ The above requirements file should include all of the needed libraries. However,
 sudo pip3 install kaggle
 ```
 
+## Selenium Helper
+
 The repository also contains two version of selenium helper functions, for Firefox and Edge browsers. I prefer using the Firefox one, however, you are free to switch for your own too (e.g Chrome).
 
 ## ChatGPT - API Key
