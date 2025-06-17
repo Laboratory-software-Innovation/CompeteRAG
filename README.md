@@ -32,16 +32,17 @@ For Ubuntu:
 ~/config/kaggle/.kaggle
 ```
 
+The directory may vary depending on the system. 
+
 ## Kaggle Competitions
 
 Before you start parsing the competitions, ensure that you have joined the competitions you are aiming to parse, otherwise you will run into the HTTP Error and the API will not be able to retrieve the test.csv dataset file. 
 
 ```
 requests.exceptions.HTTPError: 403 Client Error: Forbidden for url: https://www.kaggle.com/api/v1/competitions/data/download/slug/train.csv
-
 ```
 
-The directory may vary depending on the system. 
+
 ## Collecting and Structuring Notebooks
 
 Before we can even compare to any notebooks, we first need to get at least a small dataset. Therefore, we need to collect competitions, their metadata, its datasets and solutions. First, it parses each competition's html page and strips it to text. Next, downloads the dataset (train.csv file), runs it through a summarization function and provides a dense summary of the dataset. It is then sent to an LLM to provide as a much more dense but still helpful summary. It then filters the notebooks section of every single competition by TensorFlow and PyTorch. The resulting notebooks are then sent through an LLM for more deep analysis, for example if the LLM understands that the notebook uses a Machine Learning algorithms, it skips that notebooks and moves on. 
