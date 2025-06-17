@@ -24,13 +24,21 @@ Next, dont forget to add the API key to the directory
 OPENAI_API_KEY = sk-...
 ```
 
-
 ## Kaggle Configuration
 Finally, don't forget to add your .kaggle configuration file. 
 
 For Ubuntu:
 ```
 ~/config/kaggle/.kaggle
+```
+
+## Kaggle Competitions
+
+Before you start parsing the competitions, ensure that you have joined the competitions you are aiming to parse, otherwise you will run into the HTTP Error and the API will not be able to retrieve the test.csv dataset file. 
+
+```
+requests.exceptions.HTTPError: 403 Client Error: Forbidden for url: https://www.kaggle.com/api/v1/competitions/data/download/slug/train.csv
+
 ```
 
 The directory may vary depending on the system. 
