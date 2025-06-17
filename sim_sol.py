@@ -206,7 +206,7 @@ def collect_and_structured(max_per_keyword: int = 5) -> pd.DataFrame:
         "kernel_link"
     ])
 
-    all_slugs = parse_playground_kaggle(9)
+    all_slugs = parse_playground_kaggle(2)
     records = []
 
     driver = init_selenium_driver()
@@ -221,12 +221,20 @@ def collect_and_structured(max_per_keyword: int = 5) -> pd.DataFrame:
         comp_meta = parse_competition_metadata(html)
         comp_meta["slug"] = slug
 
+        labels = label_competition(comp_meta)
+        comp_meta.update(labels)
+        print(comp_meta["target_column"])
+
         # — 3) Download & profile train.csv exactly once
         train_csv = comp_folder / "train.csv"
         if not train_csv.exists():
             kaggle_api.competition_download_file(
                 slug, "train.csv", path=str(comp_folder)
             )
+
+        profile = describe_schema(str(train_csv), comp_meta["target_column"])
+        comp_meta["dataset_schema"]  = profile["dataset_schema"]
+        comp_meta["target_summary"]  = profile["target_summary"]
 
         tf_count, pt_count = 0, 0
 
@@ -309,13 +317,7 @@ def collect_and_structured(max_per_keyword: int = 5) -> pd.DataFrame:
             struct.get("library", "").lower() == "tensorflow":
             
                 print("TARGET-TF: " + struct["target_column"])
-                profile = describe_schema(str(train_csv), struct["target_column"])
-                dataset_schema = profile.get("dataset_schema", [])
-                target_summary = profile.get("target_summary", {})
 
-                struct["dataset_schema"]  = dataset_schema
-                struct["target_summary"]  = target_summary
-                
                 # Write that ten‐field JSON into our CSV (only DL entries)
                 csv_writer.writerow([
                     struct["slug"],
@@ -430,13 +432,6 @@ def collect_and_structured(max_per_keyword: int = 5) -> pd.DataFrame:
             struct.get("library", "").lower() == "pytorch":
         
                 print("TARGET-PYT: " + struct["target_column"])
-                profile = describe_schema(str(train_csv), struct["target_column"])
-                dataset_schema = profile.get("dataset_schema", [])
-                target_summary = profile.get("target_summary", {})
-
-                struct["dataset_schema"]  = dataset_schema
-                struct["target_summary"]  = target_summary
-                
 
                 # Write that ten‐field JSON into our CSV
                 csv_writer.writerow([
@@ -450,6 +445,7 @@ def collect_and_structured(max_per_keyword: int = 5) -> pd.DataFrame:
                     struct["notebook_model_layers_code"],
                     struct["used_technique"],
                     struct["library"],
+                    kernel_ref,
                     kernel_link
                 ])
 
@@ -526,19 +522,6 @@ def parse_competition_metadata(html: str) -> dict:
     title_el = soup.find("h1")
     title = title_el.get_text(strip=True) if title_el else ""
 
-    # 2) Problem Type & Subtype (if present in <dt>/<dd>)
-    prob_type = ""
-    prob_subtype = ""
-    for dt in soup.find_all("dt"):
-        label = dt.get_text(strip=True).lower()
-        dd = dt.find_next_sibling("dd")
-        if not dd:
-            continue
-        text = dd.get_text(strip=True)
-        if label == "problem type":
-            prob_type = text
-        elif label == "problem subtype":
-            prob_subtype = text
 
     # 3) Overview (Abstract) section
     desc_div = soup.find("div", id="abstract")
@@ -581,8 +564,6 @@ def parse_competition_metadata(html: str) -> dict:
 
     return {
         "title": title,
-        "problem_type": prob_type,
-        "problem_subtype": prob_subtype,
         "problem_description": full_desc
     }
 
@@ -703,57 +684,34 @@ def describe_schema(
         "target_summary": target_summary
     }
 
-def ask_llm_for_structured_comp(comp_meta: dict) -> dict:
-    system_prompt = ( 
-        "You are an expert data scientist. "
-        "Extract the following from the competition metadata and return exactly these keys (no extras!):\n"
-        "- slug (competition slug)\n"
-        "- competition_problem_type\n"
-        "- competition_problem_subtype\n"
-        "- competition_problem_description\n"
-        "- competition_dataset_type\n"
-        "- competition_dataset_description\n"
-        "- target_column (the exact name of the label column)\n"
-        "Respond with pure JSON, no markdown fences."
+def label_competition(comp_meta: dict) -> dict:
+    """
+    Fill in comp_meta with:
+      - target_column
+
+    """
+    system = {
+      "role": "system",
+      "content": (
+        "You are an expert data scientist.  "
+        "From the competition metadata, emit **only** a JSON object with exactly these keys:\n"
+        "  • target_column (exact name of the label column in train.csv)\n"
+        "  • competition_problem_type (must be “classification” or “regression”)\n"
+        "  • competition_problem_subtype (a single concise lowercase hyphenated phrase describing the specific subtype, e.g. “binary-classification”, “multiclass-classification”, “time-series-forecasting”, etc.)\n"
+        "No extra keys, no prose, no markdown—just a JSON object."
+      )
+    }
+    user = {
+      "role": "user",
+      "content": json.dumps({"competition_metadata": comp_meta}, ensure_ascii=False)
+    }
+    resp = openai.chat.completions.create(
+      model=OPENAI_MODEL, temperature=0.0, messages=[system, user]
     )
-
-    user_payload = json.dumps({"competition_metadata": comp_meta}, ensure_ascii=False)
-
-    user_instructions = (
-        "Please emit exactly this JSON structure:\n"
-        "{\n"
-        '  "slug": "...",\n'
-        '  "competition_problem_type": "...",\n'
-        '  "competition_problem_subtype": "...",\n'
-        '  "competition_problem_description": "...",\n'
-        '  "competition_dataset_type": "...",\n'
-        '  "competition_dataset_description": "...",\n'
-        '  "target_column": "..." \n'
-        "}"
-    )
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user",   "content": user_payload},
-        {"role": "user",   "content": user_instructions},
-    ]
-
-    response = openai.chat.completions.create(
-        model=OPENAI_MODEL,
-        temperature=0.0,
-        messages=messages
-    )
-
-    content = response.choices[0].message.content.strip()
-    if content.startswith("```"):
-        content = "\n".join(content.split("\n")[1:-1]).strip()
-
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        print("[ERROR] LLM did not return valid JSON. Raw response:")
-        print(content)
-        return None
+    out = resp.choices[0].message.content.strip()
+    if out.startswith("```"):
+      out = "\n".join(out.split("\n")[1:-1]).strip()
+    return json.loads(out)
 
 
 def ask_llm_for_structured_output(comp_meta: dict, notebook_path: str) -> dict:
@@ -793,9 +751,9 @@ def ask_llm_for_structured_output(comp_meta: dict, notebook_path: str) -> dict:
         "Please respond with a JSON object exactly with these keys (no extra keys!):\n"
         "{\n"
         '  "slug": "<competition_slug>",\n'
-        '  "competition_problem_type": "<competition_problem_type>",\n'
-        '  "competition_problem_subtype": "<competition_problem_subtype>",\n'
-        '  "competition_problem_description": "<competition_problem_description>",\n'
+        '  "competition_problem_type": "classification|regression",\n'
+        '  "competition_problem_subtype": (a single, concise phrase—lower-case words and hyphens only—describing the specific subtype, e.g. “binary classification”, “multiclass classification”, “multi-label classification”, “time-series forecasting”, “continuous regression”, “ordinal regression”, etc. or any other that fits.)\n"'
+        '  "competition_problem_description": based on the provided `dataset_schema` and `target schema` give a brief list of each feature name + its type'
         '  "competition_dataset_type": "<competition_dataset_type>",\n'
         '  "competition_dataset_description": "<competition_dataset_description>",\n'
         '  "preprocessing_steps": [\n'
@@ -808,6 +766,7 @@ def ask_llm_for_structured_output(comp_meta: dict, notebook_path: str) -> dict:
         '  "library": "<library>",\n'
         '  "target_column": "<string>"\n'
         "}\n\n"
+        "You also have access to `dataset_schema` and `target_summary` in the competition_metadata payload—use them to ground your explanations.\n"
         "**You have access to a variable** `dataset_columns` **which is the exact list of feature names.**\n"
         "- For `preprocessing_steps`, list every transformation (scaling, normalization, one-hot encoding, etc.) in plain English.\n"
         "- For `notebook_model_layers_code`, include the literal code lines of model compile, model fit, and that build each layer (e.g. `Dense(128, activation='relu', …)`).\n"
@@ -888,7 +847,7 @@ def build_index(df_structured: pd.DataFrame,
         parts = [
             row["competition_problem_description"].strip(),
             row["competition_dataset_description"].strip(),
-            #row["notebook_description"].strip(),
+            #row["notebook_description"].strip(), also since we are using preprocessing NLP and code segments
         ]
         # join with a separator; extra spaces don't harm SimCSE
         return " ".join(p for p in parts if p)
@@ -1262,39 +1221,6 @@ def structure_and_label_competition(
     return json.loads(out)
 
 
-def prepare_new_competition(slug: str, class_col: str) -> Tuple[str,str]:
-    """
-    Scrapes & structures the new competition, writes slug_desc.json,
-    downloads train.csv → returns (desc_json_path, train_csv_path).
-    """
-    # 1) scrape and parse
-    html   = fetch_competition_page_html(slug, driver)
-    comp_meta = parse_competition_metadata(html)
-    comp_meta["slug"] = slug
-      
-    # 2) download train.csv
-    
-    
-    ensure_folder(COMP_TRAIN_DIR)
-    ensure_folder(download_dir)
-    download_dir = Path("solutions") / slug 
-    train_csv_path = str(download_dir / "train.csv")
-
-    # 3) profile dataset schema
-    schema = describe_schema(train_csv_path, class_col)
-    print(schema)
-    # 4) structure comp info via LLM
-    comp_struct = structure_and_label_competition(comp_meta, schema)
-
-
-    # 5) write desc.json
-    desc_path = Path(f"{slug}_desc.json")
-    desc_path.write_text(json.dumps(comp_struct, ensure_ascii=False, indent=2), encoding="utf-8")  
-
-   
-
-    return str(desc_path), train_csv_path
-
 def normalize_kernel_ref(ref: str) -> str:
     """
     Turn either
@@ -1331,8 +1257,6 @@ def solve_competition_with_code(
         kaggle_api.competition_download_file(slug, "train.csv", path=str(comp_folder))
 
     profile = describe_schema(str(train_csv), class_col)
-
-
     
     print(profile)
 
