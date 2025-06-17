@@ -36,7 +36,7 @@ from huggingface_hub import InferenceApi
 import openai
 import tiktoken
 
-from selenium_firefox import init_selenium_driver
+from selenium_helper import init_selenium_driver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -896,7 +896,7 @@ def build_index(df_structured: pd.DataFrame,
     df["combined_text"] = df.apply(_combine_text, axis=1)
 
     # --- 2) Encode combined_text with SentenceTransformer ---
-    s_model = SentenceTransformer(model_name)  # uses the saved model_name
+    s_model = SentenceTransformer(model_name)  # uses the saved model_name DiffCSE
     texts = df["combined_text"].tolist()
     text_embeddings = s_model.encode(
         texts,
@@ -1152,7 +1152,6 @@ def solve_competition_with_examples(
             f"layers:\n{row['notebook_model_layers_code']}"
         )
 
-
     # 3) profile the new dataset
     schema_profile = describe_schema(train_csv_url, class_col)
 
@@ -1313,7 +1312,8 @@ def normalize_kernel_ref(ref: str) -> str:
 def solve_competition_with_code(
     class_col:       str,
     structured_csv:  str = "notebooks_structured.csv",
-    top_k:           int = 5
+    top_k:           int = 5,
+    kt:              bool = 1
 ) -> str:
 
     driver = init_selenium_driver()
@@ -1329,8 +1329,10 @@ def solve_competition_with_code(
     train_csv = comp_folder / "train.csv"
     if not train_csv.exists():
         kaggle_api.competition_download_file(slug, "train.csv", path=str(comp_folder))
-    
+
     profile = describe_schema(str(train_csv), class_col)
+
+
     
     print(profile)
 
@@ -1358,11 +1360,7 @@ def solve_competition_with_code(
         layer_code = row["notebook_model_layers_code"]
         examples.append((rank, kr, score, prep_steps, layer_code))
 
-
-    system = {
-        "role": "system",
-        "content": (
-            "You are a world-class deep learning engineer and data scientist.  "
+    base_prompt = ("You are a world-class deep learning engineer and data scientist.  "
             "Generate **only runnable Python code** wrapped in <Code>…</Code> that builds a robust solution for any tabular competition with these requirements:\n\n"
             "1. Reproducibility:\n"
             "   - Set global seeds for Python, NumPy, and the chosen DL framework (TensorFlow or PyTorch), plus scikit-learn.\n"
@@ -1408,12 +1406,89 @@ def solve_competition_with_code(
             "    - Predict, threshold at 0.5 for binary targets.\n"
             "    - Write submission_result.csv using the preserved ID column and predicted target.\n\n"
             "Make no assumptions about specific column names beyond train.csv and test.csv and a single target column; auto-detect where needed.  "
-            "Return only valid Python code between <Code> and </Code>."
-        )
-    }
+            "Return only valid Python code between <Code> and </Code>.")
+        # 2) Define the extra Keras-Tuner snippet
+    tuner_prompt = (
+        "### Hyperparameter Tuning (kt==1)\n"
+        "10. **Search Space**\n"
+        "    – hp.Int('num_layers',1,3)\n"
+        "    – hp.Int('units_0',32,256,step=32)\n"
+        "    – hp.Int('units_1',16,128,step=16)\n"
+        "    – hp.Float('dropout',0.0,0.5,step=0.1)\n"
+        "    – hp.Choice('learning_rate',[1e-2,1e-3,1e-4])\n"
+        "    – hp.Int('batch_size',16,64,step=16)\n"
+        "11. **HyperModel**\n"
+        "```python\n"
+        "class TabularHyperModel(HyperModel):\n"
+        "    def build(self, hp):\n"
+        "        num_layers = hp.Int('num_layers', 1, 3)\n"
+        "        lr         = hp.Choice('learning_rate',[1e-2,1e-3,1e-4])\n"
+        "        dropout    = hp.Float('dropout', 0.0, 0.5, step=0.1)\n"
+        "        model = tf.keras.Sequential()\n"
+        "        for i in range(num_layers):\n"
+        "            units = hp.Int(f'units_{i}', 16, 128, step=16)\n"
+        "            model.add(tf.keras.layers.Dense(units, activation='relu'))\n"
+        "            model.add(tf.keras.layers.Dropout(dropout))\n"
+        "        model.add(tf.keras.layers.Dense(1, activation='sigmoid' if classification else 'linear'))\n"
+        "        model.compile(\n"
+        "            optimizer=tf.keras.optimizers.Adam(lr),\n"
+        "            loss='binary_crossentropy' if classification else 'mean_squared_error',\n"
+        "            metrics=['accuracy'] if classification else ['RootMeanSquaredError']\n"
+        "        )\n"
+        "        return model\n\n"
+        "    def fit(self, hp, model, x, y, **kwargs):\n"
+        "        bs = hp.Int('batch_size', 16, 64, step=16)\n"
+        "        return model.fit(x, y,\n"
+        "                         batch_size=bs,\n"
+        "                         callbacks=[EarlyStopping(monitor='val_loss', patience=5)],\n"
+        "                         **kwargs)\n"
+        "```\n"
+        "12. **Tuner Setup**\n"
+        "```python\n"
+        "tuner = kt.Hyperband(\n"
+        "    TabularHyperModel(),\n"
+        "    objective='val_accuracy' if classification else 'val_root_mean_squared_error',\n"
+        "    max_epochs=50,\n"
+        "    factor=3,\n"
+        "    directory='tuner_logs',\n"
+        "    project_name='tabular_hb'\n"
+        ")\n"
+        "```\n"
+        "13. **Search & Retrieve**\n"
+        "```python\n"
+        "tuner.search(\n"
+        "    X_train_proc, y_train,\n"
+        "    validation_data=(X_val_proc, y_val),\n"
+        "    epochs=50\n"
+        ")\n"
+        "best_hps   = tuner.get_best_hyperparameters(1)[0]\n"
+        "best_model = tuner.hypermodel.build(best_hps)\n"
+        "```\n"
+        "14. **Re-train Best Model**\n"
+        "```python\n"
+        "best_model.fit(\n"
+        "    X_train_proc, y_train,\n"
+        "    epochs=100,\n"
+        "    batch_size=best_hps.get('batch_size'),\n"
+        "    callbacks=[ModelCheckpoint('best.h5', save_best_only=True)],\n"
+        "    validation_data=(X_val_proc, y_val)\n"
+        ")\n"
+        "```\n"
+        "{% endif %}\n"
+        "15. **Evaluation & Logging**\n"
+        "    – Load best weights → eval train/val → save to results.json\n"
+        "16. **Prediction & Submission**\n"
+        "    – Transform test → predict → threshold (if classification) → write submission_result.csv\n"
+    )
 
 
+    system_content = base_prompt
+    if kt:  # only append tuner text when kt == 1 / True
+        print("KERAS-TUNER MODEL GENERATION")
+        system_content += "\n\n" + tuner_prompt
 
+        
+    system = { "role": "system", "content": system_content }
 
 
     # new comp + schema
@@ -1424,6 +1499,8 @@ def solve_competition_with_code(
       json.dumps(profile, indent=2, ensure_ascii=False),
       "\n### Example summaries ###"
     ]
+
+
     # loop through the examples list you actually populated
     for rank, kr, sc, prep, layers in examples:
         user_parts.append(
@@ -1450,6 +1527,74 @@ def solve_competition_with_code(
     if code.startswith("```"):
         code = "\n".join(code.split("\n")[1:-1])
     return code
+
+
+def followup_prompt(
+    slug: str
+) -> str:
+    """
+    Reads a solution file which contains marked sections:
+      <Code> ... </Code>
+      <Error> ... </Error>
+    Sends these to the LLM in a follow-up prompt asking for corrected code.
+    
+    Returns the corrected code (without markers).
+    """
+    solution_path = str(str(slug) + "_solution.py")
+
+    path = Path(solution_path)
+    if not path.exists():
+        raise FileNotFoundError(f"No such file: {solution_path}")
+    
+    text = path.read_text(encoding="utf-8")
+
+    # extract between markers
+    code_match = re.search(r"<Code>(.*?)</Code>", text, re.S)
+    err_match  = re.search(r"<Error>(.*?)</Error>", text, re.S)
+    if not code_match or not err_match:
+        raise ValueError("File must contain <Code>...</Code> and <Error>...</Error> sections")
+
+    code_block = code_match.group(1).strip()
+    error_msg  = err_match.group(1).strip()
+
+    system = {
+        "role": "system",
+        "content": (
+            "You are a world-class deep learning engineer with an expertice in debugging the code.  "
+            "Turn on the verbose and save the training and validtion accuracy and log of the last epoch in a json file (results.json). It will have the following keys: {training_accuracy, training_loss,validation_accuracy and validation_loss}  "
+            "Now you will be given a deep learning <Code> along with the <Error> log. Think step by step and generate a fix for this code. Rewrite the full code from the begining, fixing the bug. In you code, include the code that records the time of how long the model trains. Write the code in this format"
+            "<Code>"
+            "Your code goes here"
+            "</Code>"    
+        )
+    }
+    user = {
+        "role": "user",
+        "content": (
+            "<Code>\n"
+            f"{code_block}\n"
+            "</Code>\n\n"
+            "<Error>\n"
+            f"{error_msg}\n"
+            "</Error>\n\n"
+            "Return only the corrected Python code, wrapped in <Code>...</Code>."
+        )
+    }
+
+    resp = openai.chat.completions.create(
+        model=OPENAI_MODEL,
+        temperature=0.0,
+        messages=[system, user]
+    )
+    reply = resp.choices[0].message.content.strip()
+    # strip markers
+    if reply.startswith("<Code>") and reply.endswith("</Code>"):
+        return reply[len("<Code>"):-len("</Code>")].strip()
+    return reply
+
+
+
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Command‐Line Interface
@@ -1504,41 +1649,47 @@ if __name__ == "__main__":
             exclude_competition=exclude_comp
         )
         sys.exit(0)
-    # elif cmd == "auto_solve":
-    #     if len(sys.argv) < 4:
-    #         print("Usage: python pipeline.py auto_solve <slug> <class_col> [top_k]")
-    #         sys.exit(1)
-    #     slug     = sys.argv[2]
-    #     class_col= sys.argv[3]
-    #     top_k    = int(sys.argv[4]) if len(sys.argv) >= 5 else 5
 
-    #     print(f"[INFO] Auto‐solving competition `{slug}` (target=`{class_col}`, top_k={top_k})…")
-    #     plan = auto_solve_competition(
-    #         slug=slug,
-    #         class_col=class_col,
-    #         top_k=top_k,
-    #         structured_csv="notebooks_structured.csv"
-    #     )
-    #     print(json.dumps(plan, indent=2))
-    #     sys.exit(0)
     elif cmd == "auto_solve_code":
         if len(sys.argv) < 4:
-            print("Usage: python pipeline.py auto_solve_code <slug> <class_col> [top_k]")
+            print("Usage: python pipeline.py auto_solve_code <slug> <class_col> [top_k] [Keras-Tuner True:1|False:0]")
             sys.exit(1)
         slug      = sys.argv[2]
         class_col = sys.argv[3]
         top_k     = int(sys.argv[4]) if len(sys.argv)>4 else 5
+        kt = int(sys.argv[5]) if len(sys.argv) > 5 else 0
 
         # call the new solver
         notebook_code = solve_competition_with_code(
             class_col     = class_col,
             structured_csv= "notebooks_structured.csv",
-            top_k         = top_k
+            top_k         = top_k,
+            kt            = kt
         )
         # write out the notebook
         out_path = Path(f"{slug}_solution.py")
         out_path.write_text(notebook_code, encoding="utf-8")
         print(f"[OK] Solution code written to {out_path}")
+
+    elif cmd == "followup":
+        # Usage: python pipeline.py followup <solution_file.py>
+        if len(sys.argv) != 3:
+            print("Usage: python pipeline.py followup slug")
+            sys.exit(1)
+            
+        slug = sys.argv[2]
+        print(slug)
+        try:
+            corrected_code = followup_prompt(str(slug))
+        except Exception as e:
+            print(f"[ERROR] {e}")
+            sys.exit(1)
+
+        # Write out the corrected version alongside the original
+        orig = Path(str(slug))
+        fixed = orig.with_name(orig.stem + "_fixed.py")
+        fixed.write_text(corrected_code, encoding="utf-8")
+        print(f"[OK] Corrected code written to {fixed}")
 
     else:
         print_usage()
