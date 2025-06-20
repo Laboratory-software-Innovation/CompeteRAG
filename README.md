@@ -81,6 +81,9 @@ The API should then generate two files:
 * .json description of a competition
 * .py model code (you may need to remove <"Code"> and <"/Code"> tags from top and bottom respectively).
 
+## Follow-up Prompt
+
+If, in any case the initial prompt generated a faulty code, and you receive an error message, copy the error message and insert it below the code segment into a new <Error>...</Error> block segment
 
 # P.S.
 
