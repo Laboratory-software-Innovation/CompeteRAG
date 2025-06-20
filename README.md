@@ -48,7 +48,7 @@ requests.exceptions.HTTPError: 403 Client Error: Forbidden for url: https://www.
 Before we can even compare to any notebooks, we first need to get at least a small dataset. Therefore, we need to collect competitions, their metadata, its datasets and solutions. First, it parses each competition's html page and strips it to text. Next, downloads the dataset (train.csv file), runs it through a summarization function and provides a dense summary of the dataset. It is then sent to an LLM to provide as a much more dense but still helpful summary. It then filters the notebooks section of every single competition by TensorFlow and PyTorch. The resulting notebooks are then sent through an LLM for more deep analysis, for example if the LLM understands that the notebook uses a Machine Learning algorithms, it skips that notebooks and moves on. 
 
 ```
-python3 sim_sol.py collect_and_structured
+python3 rag.py collect_and_structured
 ```
 
 
@@ -57,7 +57,7 @@ python3 sim_sol.py collect_and_structured
 Since we now have at least some solutions to compare to, our next step is to build an encoded matrix for the later comparison.
 
 ```
-python3 sim_sol.py build_index
+python3 rag.py build_index
 ```
 
 ## Building the Code for a New Competition
@@ -65,7 +65,7 @@ python3 sim_sol.py build_index
 The final step to find the notebooks solutions that are as close as possible to our new competition. Now, the API will find top-k solutions similar to the provided competition, and append them to our next LLM prompt. 
 
 ```
-python3 sim_sol.py auto_solve_code <competition-slug> <class_column> <#top-k>
+python3 rag.py auto_solve_code <competition-slug> <class_column> <#top-k>
 ```
 
 competition-slug - a part of a link, something like playground-series-s5e4
