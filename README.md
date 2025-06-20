@@ -14,7 +14,7 @@ sudo pip3 install kaggle
 
 ## Selenium Helper
 
-The repository also contains two version of selenium helper functions, for Firefox and Edge browsers. I prefer using the Firefox one, however, you are free to switch for your own too (e.g Chrome).
+The repository also contains two version of selenium helper functions, for Firefox and Edge browsers. I prefer using the Firefox one, however, you are free to switch it for your own too (e.g Chrome). Whichever one you pick, make sure you rename it to selenium_helper.py
 
 ## ChatGPT - API Key
 Next, dont forget to add the API key to the directory
