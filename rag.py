@@ -31,14 +31,14 @@ logging.set_verbosity_error()
 def print_usage():
     print("""
         Usage:
-        python pipeline.py collect_and_structured
-        python pipeline.py build_index
-        python pipeline.py find_similar
-        python pipeline.py find_similar_desc <description.txt> [notebooks|comps] [top_k]
+        python rag.py collect_and_structured
+        python rag.py build_index
+        python rag.py find_similar
+        python rag.py find_similar_desc <description.txt> [notebooks|comps] [top_k]
 
         Examples:
-        python pipeline.py find_similar_desc my_problem.txt notebooks 5
-        python pipeline.py find_similar_desc my_problem.txt comps 10
+        python rag.py find_similar_desc my_problem.txt notebooks 5
+        python rag.py find_similar_desc my_problem.txt comps 10
     """)
 
 
@@ -62,9 +62,9 @@ if __name__ == "__main__":
         build_index(df_struct)
         sys.exit(0)
     elif cmd == "find_similar_desc":
-        # Usage: python3 pipeline.py find_similar_desc <desc_and_meta.json> <top_k> [<exclude_competition>]
+        # Usage: python3 rag.py find_similar_desc <desc_and_meta.json> <top_k> [<exclude_competition>]
         if len(sys.argv) < 4:
-            print("Usage: python3 pipeline.py find_similar_desc <desc_meta.json> <top_k> [<exclude_competition>]")
+            print("Usage: python3 rag.py find_similar_desc <desc_meta.json> <top_k> [<exclude_competition>]")
             sys.exit(1)
 
         desc_json    = sys.argv[2]
@@ -80,7 +80,7 @@ if __name__ == "__main__":
 
     elif cmd == "auto_solve_code":
         if len(sys.argv) < 4:
-            print("Usage: python pipeline.py auto_solve_code <slug> <class_col> [top_k] [Keras-Tuner True:1|False:0]")
+            print("Usage: python rag.py auto_solve_code <slug> <class_col> [top_k] [Keras-Tuner True:1|False:0]")
             sys.exit(1)
         slug      = sys.argv[2]
         class_col = sys.argv[3]
@@ -102,9 +102,9 @@ if __name__ == "__main__":
         print(f"[OK] Solution code written to {out_path}")
 
     elif cmd == "followup":
-        # Usage: python pipeline.py followup <solution_file.py>
+        # Usage: python rag.py followup <solution_file.py>
         if len(sys.argv) != 3:
-            print("Usage: python pipeline.py followup slug")
+            print("Usage: python rag.py followup slug")
             sys.exit(1)
             
         slug = sys.argv[2]
