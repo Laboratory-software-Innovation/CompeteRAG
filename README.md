@@ -79,7 +79,7 @@ class_column - can be found in the Data section of a competition (e.g Listening_
 The API should then generate two files: 
 
 * .json description of a competition
-* .py model code (you may need to remove <"Code"> and <"/Code"> tags from top and bottom respectively).
+* .py model code (you may need to remove \<Code> and \</Code> tags from top and bottom respectively).
 
 ## Follow-up Prompt
 
