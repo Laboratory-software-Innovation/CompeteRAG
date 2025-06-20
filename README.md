@@ -83,7 +83,7 @@ The API should then generate two files:
 
 ## Follow-up Prompt
 
-If, in any case the initial prompt generated a faulty code, and you receive an error message, copy the error message and insert it below the code segment into a new <"Error">...<"/Error"> block segment
+If, in any case the initial prompt generated a faulty code, and you receive an error message, copy the error message and insert it below the code segment into a new \<Error>...\</Error> block segment
 
 # P.S.
 
