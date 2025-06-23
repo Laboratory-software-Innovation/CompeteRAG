@@ -48,8 +48,6 @@ def ensure_folder(path: Path):
     path.mkdir(parents=True, exist_ok=True)
     return path
 
-
-
 def truncate_to_token_limit(text: str, max_tokens: int = MAX_NOTEBOOK_TOKENS) -> str:
     tokens = ENCODER.encode(text)
     if len(tokens) <= max_tokens:

@@ -66,6 +66,7 @@ def label_competition(comp_meta: dict) -> dict:
     return result
 
 
+
 def get_comp_files(slug: str):
 
     proc = subprocess.run(

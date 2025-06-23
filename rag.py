@@ -82,12 +82,11 @@ if __name__ == "__main__":
             sys.exit(1)
         slug      = sys.argv[2]
         class_col = sys.argv[3]
-        top_k     = int(sys.argv[4]) if len(sys.argv)>4 else 5
-        kt = int(sys.argv[5]) if len(sys.argv) > 5 else 0
+        top_k     = int(sys.argv[3]) if len(sys.argv)>3 else 5
+        kt = int(sys.argv[4]) if len(sys.argv) > 4 else 0
 
         # call the new solver
         notebook_code = solve_competition_with_code(
-            class_col     = class_col,
             slug          = slug,
             structured_csv= "notebooks_structured.csv",
             top_k         = top_k,

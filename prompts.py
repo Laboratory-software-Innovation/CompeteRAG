@@ -10,6 +10,7 @@ from config import OPENAI_MODEL,kaggle_api
 from selenium_helper import init_selenium_driver
 from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab, describe_schema
 from similarity import find_similar_ids
+from collection import label_competition
 
 def normalize_kernel_ref(ref: str) -> str:
     """
@@ -36,7 +37,6 @@ def structure_and_label_competition(
     """
     Returns exactly these keys:
       {
-        "slug": …,
         "competition_type": …,
         "competition_problem_subtype": …,
         "competition_problem_description": …,
@@ -51,7 +51,6 @@ def structure_and_label_competition(
         "You are an expert data scientist.  "
         "Below are the raw Kaggle competition metadata and a structured dataset schema.  "
         "Emit **only** a JSON object with exactly these keys:\n"
-        "  slug                              (the competition slug)\n"
         "  competition_type          (e.g. “regression” or “classification”)\n"
         "  competition_problem_subtype       (a single, concise phrase—lower-case words and hyphens only—describing the specific subtype, e.g. “binary classification”, “multiclass classification”, “multi-label classification”, “time-series forecasting”, “continuous regression”, “ordinal regression”, etc. or any other that fits.)\n"
         "  competition_problem_description   Dense, short, and detailed description of the problem, what needs to be found, no repetitive words\n"
@@ -86,7 +85,6 @@ def structure_and_label_competition(
 """
 
 def solve_competition_with_code(
-    class_col:       str,
     slug:            str, 
     structured_csv:  str = "notebooks_structured.csv",
     top_k:           int = 5,
@@ -112,7 +110,9 @@ def solve_competition_with_code(
 
     # 4) unpack/sniff/describe
     train_csv = extract_tabular(train_file)
-    profile   = describe_schema(str(train_csv), class_col)
+    target = label_competition(comp_meta)["target_column"]
+    print(target)
+    profile   = describe_schema(str(train_csv), target)
     if "error" in profile:
         print(f"[WARN] Schema profiling failed: {profile['error']}")
         return
@@ -120,8 +120,6 @@ def solve_competition_with_code(
     comp_struct = structure_and_label_competition(comp_meta)
     desc_path = Path(f"{slug}_desc.json")
     desc_path.write_text(json.dumps(comp_struct, ensure_ascii=False, indent=2), encoding="utf-8")  
-
-
 
     # load & normalize your structured CSV
     df = pd.read_csv(structured_csv)
@@ -271,7 +269,9 @@ def solve_competition_with_code(
         
     system = { "role": "system", "content": system_content }
 
-
+    print(comp_struct["competition_problem_description"])
+    print(comp_struct["dataset_metadata"])
+    print(profile)
     # new comp + schema
     user_parts = [
       "### New competition ###",
