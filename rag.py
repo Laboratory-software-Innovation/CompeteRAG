@@ -50,7 +50,10 @@ if __name__ == "__main__":
     cmd = sys.argv[1].lower()
 
     if cmd == "collect_and_structured":
-        df_struct = collect_and_structured(max_per_keyword=5)
+
+        start_slug = sys.argv[2] if len(sys.argv) >= 3 else None
+        df_struct = collect_and_structured(num_competitions=147,max_per_keyword=5, start=start_slug)
+
         print(f"[OK] Collected and structured {len(df_struct)} notebooks.")
         sys.exit(0)
 

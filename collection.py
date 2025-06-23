@@ -5,6 +5,7 @@ import subprocess
 import time
 import pickle
 from pathlib import Path
+import io
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -15,47 +16,84 @@ from selenium.webdriver.support import expected_conditions as EC
 import openai
 from selenium_helper import init_selenium_driver
 from config import OPENAI_MODEL,EXCEL_FILE,MAX_NOTEBOOK_TOKENS,ENCODER,kaggle_api
-from utils import fetch_competition_page_html, parse_competition_metadata,describe_schema
+from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab,describe_schema, download_train_file, extract_tabular
 
 
 #Get the target column
 def label_competition(comp_meta: dict) -> dict:
     """
     Fill in comp_meta with:
-      - target_column
+      - target_column: list of all label columns in train.csv
+      - competition_problem_type: “classification” or “regression”
+      - competition_problem_subtype: e.g. “binary-classification”, “multiclass-classification”, etc.
 
+    Sends both competition_metadata and dataset_metadata to the LLM.
     """
     system = {
-      "role": "system",
-      "content": (
-        "You are an expert data scientist.  "
-        "From the competition metadata, emit **only** a JSON object with exactly these keys:\n"
-        "  • target_column (exact name of the label column in train.csv)\n"
-        "  • competition_problem_type (must be “classification” or “regression”)\n"
-        "  • competition_problem_subtype (a single concise lowercase hyphenated phrase describing the specific subtype, e.g. “binary-classification”, “multiclass-classification”, “time-series-forecasting”, etc.)\n"
-        "No extra keys, no prose, no markdown—just a JSON object."
-      )
+        "role": "system",
+        "content": (
+            "You are an expert data scientist.  "
+            "From the competition and dataset metadata, emit **only** a JSON object with exactly these keys:\n"
+            "  • target_column: an array of all column names in train.csv that must be predicted\n"
+            "  • competition_problem_type: either “classification” or “regression”\n"
+            "  • competition_problem_subtype: a single concise lowercase hyphenated phrase describing the specific subtype,\n"
+            "      e.g. “binary-classification”, “multiclass-classification”, “time-series-forecasting”, etc.\n"
+            "No extra keys, no prose, no markdown—just a JSON object."
+        )
     }
+
+    payload = {
+        "competition_metadata": {
+            k: v for k, v in comp_meta.items() if k != "dataset_metadata"
+        },
+        "dataset_metadata": comp_meta.get("dataset_metadata", {})
+    }
+
     user = {
-      "role": "user",
-      "content": json.dumps({"competition_metadata": comp_meta}, ensure_ascii=False)
+        "role": "user",
+        "content": json.dumps(payload, ensure_ascii=False)
     }
+
     resp = openai.chat.completions.create(
-      model=OPENAI_MODEL, temperature=0.0, messages=[system, user]
+        model=OPENAI_MODEL,
+        temperature=0.0,
+        messages=[system, user]
     )
     out = resp.choices[0].message.content.strip()
     if out.startswith("```"):
-      out = "\n".join(out.split("\n")[1:-1]).strip()
-    return json.loads(out)
+        out = "\n".join(out.split("\n")[1:-1]).strip()
+    result = json.loads(out)
 
+    # Normalize: ensure the key is 'target_column' holding a list
+    if "target_columns" in result and "target_column" not in result:
+        result["target_column"] = result.pop("target_columns")
+    elif "target_column" in result and not isinstance(result["target_column"], list):
+        # wrap single string in a list
+        result["target_column"] = [result["target_column"]]
+
+    return result
+
+
+def get_comp_files(slug: str):
+
+    proc = subprocess.run(
+        ["kaggle", "competitions", "files", slug, "-v", "-q"],
+        capture_output=True, text=True, check=True
+    )
+    reader = csv.reader(io.StringIO(proc.stdout))
+    next(reader, None)  
+    for row in reader:
+        print(row[0])
+
+
+#get_comp_files("scrabble-player-rating")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Parsing a playground page for preprocessing steps -> NLP and parsing the code layers (tensorflow & pytorch)
 # ─────────────────────────────────────────────────────────────────────────────
 
-
 #  List of 147 Playground slugs (or however you get your list)
-def parse_playground_kaggle(max_competitions: int = 9) -> list[str]:
+def parse_playground_kaggle(max_competitions: int = 5) -> list[str]:
     """
     Scrape Kaggle’s Playground filter pages (1–8) and return up to max_competitions slugs.
     """
@@ -85,6 +123,53 @@ def parse_playground_kaggle(max_competitions: int = 9) -> list[str]:
                 if len(slugs) >= max_competitions:
                     driver.quit()
                     return slugs
+
+    driver.quit()
+    return slugs
+
+
+def parse_playground_kaggle_from(start_slug: str, max_competitions: int = 5) -> list[str]:
+    """
+    Scrape Kaggle’s Playground filter pages (1–8) and return up to max_competitions slugs
+    starting with the given start_slug as the first entry. If start_slug is not found,
+    it collects from the very beginning.
+    """
+    slugs: list[str] = []
+    driver = init_selenium_driver()
+    pattern = re.compile(r"^/competitions/([A-Za-z0-9].*)$")
+    started = start_slug is None
+
+    for page_num in range(1, 9):
+        url = f"https://www.kaggle.com/competitions?hostSegmentIdFilter=8&page={page_num}"
+        driver.get(url)
+        try:
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'a[href^="/competitions/"]'))
+            )
+        except:
+            continue
+
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        for a in soup.select('a[href^="/competitions/"]'):
+            href = a["href"]
+            m = pattern.match(href)
+            if not m:
+                continue
+            slug = m.group(1).split("?")[0]
+
+            if not started:
+                if slug == start_slug:
+                    started = True
+                    slugs.append(slug)
+                else:
+                    continue
+            else:
+                if slug not in slugs:
+                    slugs.append(slug)
+
+            if len(slugs) >= max_competitions:
+                driver.quit()
+                return slugs
 
     driver.quit()
     return slugs
@@ -134,9 +219,9 @@ def ask_llm_for_structured_output(comp_meta: dict, notebook_path: str) -> dict:
         '  "slug": "<competition_slug>",\n'
         '  "competition_problem_type": "classification|regression",\n'
         '  "competition_problem_subtype": (a single, concise phrase—lower-case words and hyphens only—describing the specific subtype, e.g. “binary classification”, “multiclass classification”, “multi-label classification”, “time-series forecasting”, “continuous regression”, “ordinal regression”, etc. or any other that fits.)\n"'
-        '  "competition_problem_description": based on the provided `dataset_schema` and `target schema` give a brief list of each feature name + its type'
-        '  "competition_dataset_type": "<competition_dataset_type>",\n'
-        '  "competition_dataset_description": "<competition_dataset_description>",\n'
+        '  "competition_problem_description": "Dense, short, and detailed description of the problem, what needs to be found, no repetitive words",\n'
+        '  "competition_dataset_type": "choose exactly one primary data modality from this list (capitalized exactly): Tabular, Time-series, Text, Image, Audio, Video, Geospatial, Graph, Multimodal. ",\n'
+        '  "competition_dataset_description": "based on the provided `dataset_schema` and `target schema` give a brief list of each feature name + its type",\n'
         '  "preprocessing_steps": [\n'
         '      "<step 1 in plain English>",\n'
         '      "<step 2>",\n'
@@ -145,7 +230,7 @@ def ask_llm_for_structured_output(comp_meta: dict, notebook_path: str) -> dict:
         '  "notebook_model_layers_code": "<complete code snippet defining each layer with all its parameters>",\n'
         '  "used_technique": "<\\"DL\\" or \\"ML\\">",\n'
         '  "library": "<library>",\n'
-        '  "target_column": "<string>"\n'
+        '  "target_column": [ "<string>", … ] an array of all column names in train.csv that must be predicted" \n'
         "}\n\n"
         "You also have access to `dataset_schema` and `target_summary` in the competition_metadata payload—use them to ground your explanations.\n"
         "**You have access to a variable** `dataset_columns` **which is the exact list of feature names.**\n"
@@ -188,59 +273,38 @@ def ask_llm_for_structured_output(comp_meta: dict, notebook_path: str) -> dict:
 # Collect Top‐Voted DL Notebooks (tensorflow & pytorch)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def collect_and_structured(max_per_keyword: int = 5) -> pd.DataFrame:
-    """
-    1) For each Playground competition slug (147 total):
-        a) Fetch competition metadata once (for LLM prompts).
-        b) Run “kaggle kernels list ... -s tensorflow” and “-s pytorch” (CSV).
-    2) For each candidate notebook (TF‐ or PT‐tagged), in descending vote order:
-        a) Download the notebook locally if not already present.
-        b) Read its content into text_content.
-        c) Immediately call ask_llm_for_structured_output(comp_meta, notebook_path).
-        d) If LLM says used_technique == "DL" AND library matches
-            (“TensorFlow” for TF loop, “PyTorch” for PT loop), **then**:
-            • write the ten‐field JSON output into structured_outputs.csv,
-            • append to records, and increment tf_count or pt_count.
-    3) Stop once you have max_per_keyword TF‐DL notebooks and max_per_keyword PT‐DL notebooks,
-    or you exhaust all candidates.
-    4) Return a DataFrame of all kept (DL) records, and also save them to Excel.
+def collect_and_structured(num_competitions: int = 10, max_per_keyword: int = 5, start: str = None) -> pd.DataFrame:
+    # Determine CSV mode and write header only when starting fresh
+    csv_mode = "w" if start is None else "a"
+    write_header = start is None or not Path("notebooks_structured.csv").exists()
 
-    The CSV structured_outputs.csv will contain one row per **kept** DL JSON, with columns:
-    [
-        competition_slug,
-        competition_problem_type,
-        competition_problem_subtype,
-        competition_problem_description,
-        competition_dataset_type,
-        competition_dataset_description,
-        notebook_description,
-        used_technique,
-        library,
-        kernel_link
-    ]
-    """
-
-    # 1) Open CSV and write header (only DL entries will go in here)
-    csv_file = open("notebooks_structured.csv", "w", encoding="utf-8", newline="")
+    csv_file = open("notebooks_structured.csv", csv_mode, encoding="utf-8", newline="")
     csv_writer = csv.writer(csv_file)
-    csv_writer.writerow([
-        "competition_slug",
-        "competition_problem_type",
-        "competition_problem_subtype",
-        "competition_problem_description",
-        "competition_dataset_type",
-        "competition_dataset_description",
-        "preprocessing_steps",
-        "notebook_model_layers_code",
-        "used_technique",
-        "library",
-        "kernel_ref",
-        "kernel_link"
-    ])
+    if write_header:
+        csv_writer.writerow([
+            "competition_slug",
+            "competition_problem_type",
+            "competition_problem_subtype",
+            "competition_problem_description",
+            "competition_dataset_type",
+            "competition_dataset_description",
+            "target_column", 
+            "preprocessing_steps",
+            "notebook_model_layers_code",
+            "used_technique",
+            "library",
+            "kernel_ref",
+            "kernel_link"
+        ])
 
-    all_slugs = parse_playground_kaggle(2)
+    # Fetch slugs, either fresh or resuming
+    if start:
+        all_slugs = parse_playground_kaggle_from(start, num_competitions)
+    else:
+        all_slugs = parse_playground_kaggle(num_competitions)
+
+
     records = []
-
     driver = init_selenium_driver()
 
     for slug in all_slugs:
@@ -253,20 +317,33 @@ def collect_and_structured(max_per_keyword: int = 5) -> pd.DataFrame:
         comp_meta = parse_competition_metadata(html)
         comp_meta["slug"] = slug
 
+        # now fetch & parse the /data tab
+        data_html = fetch_competition_page_html(f"{slug}/data", driver)
+        comp_meta["dataset_metadata"] = parse_competition_data_tab(data_html)   
+
         labels = label_competition(comp_meta)
         comp_meta.update(labels)
         print(comp_meta["target_column"])
 
         # — 3) Download & profile train.csv exactly once
-        train_csv = comp_folder / "train.csv"
-        if not train_csv.exists():
-            kaggle_api.competition_download_file(
-                slug, "train.csv", path=str(comp_folder)
-            )
+        train_csv = download_train_file(comp_meta["slug"], comp_folder) 
+        if not train_csv:
+            return
 
+        train_csv = extract_tabular(train_csv)
         profile = describe_schema(str(train_csv), comp_meta["target_column"])
+        comp_meta["dataset_metadata"]
         comp_meta["dataset_schema"]  = profile["dataset_schema"]
-        comp_meta["target_summary"]  = profile["target_summary"]
+        comp_meta["target_summary"] = profile["target_summary"]
+        comp_meta["shape"] = profile["shape"]
+        print("----------DATASET--SCHEMA-------------")
+        print(comp_meta["dataset_schema"])
+        print("------------TARGET--SUMMARY-----------------")
+        print(comp_meta["target_summary"])
+        print("-----------SHAPE------------------")
+        print(comp_meta["shape"])
+        print(comp_meta["dataset_metadata"])
+        print("----------DONE-------------")
 
         tf_count, pt_count = 0, 0
 
@@ -358,6 +435,7 @@ def collect_and_structured(max_per_keyword: int = 5) -> pd.DataFrame:
                     struct["competition_problem_description"],
                     struct["competition_dataset_type"],
                     struct["competition_dataset_description"],
+                    struct["target_column"], 
                     json.dumps(struct["preprocessing_steps"], ensure_ascii=False),
                     struct["notebook_model_layers_code"],
                     struct["used_technique"],
@@ -374,6 +452,7 @@ def collect_and_structured(max_per_keyword: int = 5) -> pd.DataFrame:
                     "competition_problem_description": struct["competition_problem_description"],
                     "competition_dataset_type":        struct["competition_dataset_type"],
                     "competition_dataset_description": struct["competition_dataset_description"],
+                    "target_column":                   struct["target_column"],
                     "preprocessing_steps":             struct["preprocessing_steps"],
                     "notebook_model_layers_code":      struct["notebook_model_layers_code"],
                     "used_technique":                  struct["used_technique"],   # "DL"
@@ -473,6 +552,7 @@ def collect_and_structured(max_per_keyword: int = 5) -> pd.DataFrame:
                     struct["competition_problem_description"],
                     struct["competition_dataset_type"],
                     struct["competition_dataset_description"],
+                    struct["target_column"], 
                     json.dumps(struct["preprocessing_steps"], ensure_ascii=False),
                     struct["notebook_model_layers_code"],
                     struct["used_technique"],
@@ -488,6 +568,7 @@ def collect_and_structured(max_per_keyword: int = 5) -> pd.DataFrame:
                     "competition_problem_description": struct["competition_problem_description"],
                     "competition_dataset_type":        struct["competition_dataset_type"],
                     "competition_dataset_description": struct["competition_dataset_description"],
+                    "target_column":                   struct["target_column"],
                     "preprocessing_steps":             struct["preprocessing_steps"],
                     "notebook_model_layers_code":      struct["notebook_model_layers_code"],
                     "used_technique":                  struct["used_technique"],   # "DL"

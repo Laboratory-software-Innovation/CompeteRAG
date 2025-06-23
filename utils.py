@@ -6,6 +6,8 @@ import tempfile
 import zipfile
 import csv
 from pathlib import Path
+import py7zr
+import gzip
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -17,8 +19,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from config import ENCODER, MAX_NOTEBOOK_TOKENS, kaggle_api
 
-from typing import Any, Dict, List
-from typing import List, Tuple, Dict
+from typing import Any, List, Tuple, Dict, Union
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48,38 +49,46 @@ def ensure_folder(path: Path):
     return path
 
 
-def download_csv(path: str, struct):
-     # ───── Download train.csv ─────
-    slug = struct["slug"]
-    comp_folder = Path("solutions") / slug
-    train_path = comp_folder / "train.csv"
-
-    comp_folder.mkdir(parents=True, exist_ok=True)
-
-    # download if missing
-    if not train_path.exists():
-        try:
-            kaggle_api.competition_download_file(slug, "train.csv", path=str(comp_folder))
-        except Exception as e:
-            print(f"[WARN] Couldn't download train.csv for {slug}: {e}")
-            return
-
-    # profile (even if it was just downloaded)
-    profile = describe_schema(str(train_path), struct["target_column"])
-    if "dataset_schema" in profile:
-        struct["dataset_schema"] = profile["dataset_schema"]
-        struct["target_summary"] = profile["target_summary"]
-    else:
-        print(f"[WARN] Schema profiling failed for {slug}: {profile.get('error')}")
-
-
-
 
 def truncate_to_token_limit(text: str, max_tokens: int = MAX_NOTEBOOK_TOKENS) -> str:
     tokens = ENCODER.encode(text)
     if len(tokens) <= max_tokens:
         return text
     return ENCODER.decode(tokens[:max_tokens])
+
+def parse_competition_data_tab(html: str) -> dict:
+    soup = BeautifulSoup(html, "html.parser")
+    info = {}
+
+    # 1) Dataset Description block
+    dd_h2 = soup.find("h2", string=re.compile(r"Dataset Description", re.IGNORECASE))
+    if dd_h2:
+        # the <div class="sc-lhcVAQ fqIFbB"> immediately follows
+        container = dd_h2.find_next("div", class_="sc-lhcVAQ")
+        if container:
+            info["dataset_description"] = container.get_text("\n", strip=True)
+
+    # 2) summary stats: Files / Size / Type / License
+    for label in ("Files", "Size", "Type", "License"):
+        h2 = soup.find("h2", string=label)
+        if h2:
+            p = h2.find_next_sibling("p")
+            info[label.lower()] = p.get_text(strip=True) if p else ""
+
+    # 3) Data Explorer → list of filenames
+    de_h2 = soup.find("h2", string=re.compile(r"Data Explorer", re.IGNORECASE))
+    files = []
+    if de_h2:
+        ul = de_h2.find_next("ul")
+        if ul:
+            for li in ul.find_all("li"):
+                # the filename lives in the <p> inside each <li>
+                p = li.find("p")
+                if p:
+                    files.append(p.get_text(strip=True))
+    info["files_list"] = files
+
+    return info
 
 
 def parse_competition_metadata(html: str) -> dict:
@@ -131,7 +140,7 @@ def parse_competition_metadata(html: str) -> dict:
 
     return {
         "title": title,
-        "problem_description": full_desc
+        "problem_description": full_desc, 
     }
 
 
@@ -139,55 +148,82 @@ def parse_competition_metadata(html: str) -> dict:
 """
     Describe dataset 
 """
+
+def extract_tabular(file_path: str) -> str:
+    """
+    If file_path is an archive (.zip, .csv.zip, .tsv.zip, .7z, .gz),
+    extract the first .csv or .tsv inside a temp dir and return its path.
+    Otherwise return file_path unchanged.
+    """
+    # read magic bytes
+    with open(file_path, 'rb') as f:
+        magic = f.read(6)
+    temp_dir = tempfile.mkdtemp()
+
+    # ZIP archives (.zip, .csv.zip, .tsv.zip, .zip)
+    if magic[:4] == b'PK\x03\x04':
+        with zipfile.ZipFile(file_path, 'r') as z:
+            members = [n for n in z.namelist() if n.lower().endswith(('.csv', '.tsv'))]
+            if not members:
+                raise RuntimeError(f"No .csv or .tsv found in ZIP {file_path}")
+            member = members[0]
+            z.extract(member, temp_dir)
+            return os.path.join(temp_dir, member)
+
+    # 7z archives (.7z)
+    if magic == b'7z\xBC\xAF\'\x1C':
+        with py7zr.SevenZipFile(file_path, 'r') as z:
+            members = [n for n in z.getnames() if n.lower().endswith(('.csv', '.tsv'))]
+            if not members:
+                raise RuntimeError(f"No .csv or .tsv found in 7z {file_path}")
+            member = members[0]
+            z.extract(targets=[member], path=temp_dir)
+            return os.path.join(temp_dir, member)
+
+    # gzip (.gz)
+    if magic[:2] == b'\x1f\x8b':
+        base = os.path.basename(file_path)[:-3]  # strip .gz
+        out_path = os.path.join(temp_dir, base)
+        with gzip.open(file_path, 'rb') as src, open(out_path, 'wb') as dst:
+            dst.write(src.read())
+        return out_path
+
+    # not an archive: assume plain .csv or .tsv
+    return file_path
+
 def describe_schema(
-    url: str,
-    class_col: str
+    source_path: str,
+    target_column: Union[str, List[str]]
 ) -> Dict[str, Any]:
     """
-    Load a (possibly zipped) CSV/TSV from `url`, auto-sniff delimiter,
-    use the python engine + skip malformed lines, then build your schema.
+    1) Unpack archives or compressed files if needed
+    2) Auto-detect delimiter (comma, tab, semicolon), fallback to tab for .tsv
+    3) Load with pandas (python engine, skip bad lines)
+    4) Build a schema and target summary for one or more columns
     """
-    
-    # 0) If this is actually a ZIP archive, unzip it
-    
-    # read magic header
-    with open(url, "rb") as f:
-        magic = f.read(4)
-    if magic == b'PK\x03\x04':
-        tmpdir = tempfile.mkdtemp()
-        with zipfile.ZipFile(url, 'r') as z:
-            # find the first CSV inside
-            for name in z.namelist():
-                if name.lower().endswith('.csv'):
-                    z.extract(name, tmpdir)
-                    url = os.path.join(tmpdir, name)
-                    break
-        # now `url` points at the extracted CSV file
+    # 0) unpack if needed
+    csv_path = extract_tabular(source_path)
 
-    
-    # 1) Find delimiter
-    
+    # 1) delimiter sniffing
+    with open(csv_path, 'rb') as f:
+        sample = f.read(2048)
     try:
-        with open(url, 'rb') as f:
-            sample = f.read(2048)
-        try:
-            text = sample.decode('utf-8')
-        except UnicodeDecodeError:
-            text = sample.decode('latin1', errors='ignore')
+        text = sample.decode('utf-8')
+    except UnicodeDecodeError:
+        text = sample.decode('latin1', errors='ignore')
+    try:
         dialect = csv.Sniffer().sniff(text, delimiters=[',','\t',';'])
         sep = dialect.delimiter
-    except Exception:
-        sep = ','
+    except csv.Error:
+        sep = '\t' if csv_path.lower().endswith('.tsv') else ','
 
-    
-    # 2) Load with python engine, no quoting, skip broken lines
-    
+    # 2) read into DataFrame
     df = None
     last_err = None
     for enc in ("utf-8","utf-8-sig","latin1","ISO-8859-1"):
         try:
             df = pd.read_csv(
-                url,
+                csv_path,
                 sep=sep,
                 encoding=enc,
                 engine='python',
@@ -198,62 +234,105 @@ def describe_schema(
         except Exception as e:
             last_err = e
     if df is None:
-        return {"error": f"Failed to load file (sep={sep!r}; tried encodings): {last_err}"}
+        return {"error": f"Failed to load (sep={sep!r}): {last_err}"}
 
-    
-    # 3) Build the schema
-    
+    # 3) build schema
     n_rows, n_cols = df.shape
-    cols = df.columns.tolist()
-
-    types: Dict[str,str] = {}
-    for c in cols:
-        dt = df[c].dtype
-        if pd.api.types.is_numeric_dtype(dt):
-            types[c] = "numeric"
-        elif pd.api.types.is_datetime64_any_dtype(dt):
-            types[c] = "datetime"
+    schema = []
+    for col in df.columns:
+        dtype = df[col].dtype
+        if pd.api.types.is_numeric_dtype(dtype):
+            col_type = "numeric"
+        elif pd.api.types.is_datetime64_any_dtype(dtype):
+            col_type = "datetime"
         else:
-            nunique = df[c].nunique(dropna=True)
-            types[c] = "categorical" if nunique < n_rows * 0.05 else "text"
+            unique_count = df[col].nunique(dropna=True)
+            col_type = "categorical" if unique_count < n_rows * 0.05 else "text"
 
-    schema: List[Dict[str, Any]] = []
-    for c in cols:
-        entry = {"name": c, "type": types[c]}
-        ser = df[c].dropna()
-        if types[c] == "numeric":
-            entry.update({
-                "min": float(ser.min()),
-                "median": float(ser.median()),
-                "max": float(ser.max())
-            })
-        elif types[c] == "categorical":
+        entry = {"name": col, "type": col_type}
+        ser = df[col].dropna()
+        if col_type == "numeric":
+            entry.update(min=float(ser.min()), median=float(ser.median()), max=float(ser.max()))
+        elif col_type == "categorical":
             vc = ser.value_counts()
-            entry.update({
-                "cardinality": int(vc.size),
-                "top": vc.index[:3].astype(str).tolist()
-            })
+            entry.update(cardinality=int(vc.size), top=vc.index[:3].astype(str).tolist())
         schema.append(entry)
 
+    # 4) target summary for one or more columns
+    # normalize to list
+    if isinstance(target_column, str):
+        targets = [target_column]
+    else:
+        targets = list(target_column)
+
     target_summary: Dict[str, Any] = {}
-    if class_col in df.columns:
-        ser = df[class_col].dropna()
-        if types[class_col] == "numeric":
+    for tgt in targets:
+        if tgt not in df.columns:
+            target_summary[tgt] = {"error": "column not found"}
+            continue
+
+        ser = df[tgt].dropna()
+        if pd.api.types.is_numeric_dtype(df[tgt].dtype):
             stats = ser.describe()
-            target_summary = {
+            target_summary[tgt] = {
                 "min": float(stats["min"]),
                 "median": float(stats["50%"]),
                 "max": float(stats["max"])
             }
         else:
             pct = (ser.value_counts(normalize=True) * 100).round(2)
-            target_summary = {str(k): float(v) for k,v in pct.items()}
+            # cast to simple dict
+            target_summary[tgt] = {str(k): float(v) for k, v in pct.items()}
 
     return {
-        "source": url,
+        "source": source_path,
         "shape": {"rows": n_rows, "cols": n_cols},
         "dataset_schema": schema,
         "target_summary": target_summary
     }
 
 
+def download_train_file(slug: str, path):
+    comp_folder = Path(path) / slug
+    comp_folder.mkdir(parents=True, exist_ok=True)
+
+    check_exts = [
+        ".csv", ".tsv",
+        ".csv.zip", ".tsv.zip",
+        ".csv.gz",  ".tsv.gz"
+    ]
+
+    # 1) see if any already exist
+    for ext in check_exts:
+        candidate = comp_folder / f"train{ext}"
+        if candidate.exists():
+            return candidate
+
+    # 2) none exist → list competition files & download the first match
+    files = kaggle_api.competition_list_files(slug).files
+    lc_to_orig = {f.name.lower(): f.name for f in files}
+    for ext in check_exts:
+        key = f"train{ext}"
+        if key in lc_to_orig:
+            kaggle_api.competition_download_file(slug, lc_to_orig[key], path=str(comp_folder))
+            return comp_folder / lc_to_orig[key]
+
+    # 3) still nothing → warn
+    print(f"[WARN] No train file found for {slug}")
+    return None
+
+
+def download_csv(path: str, struct: dict):
+    slug = struct["slug"]
+    comp_folder = Path("solutions") / slug
+    comp_folder.mkdir(parents=True, exist_ok=True)
+
+    raw_file = download_train_file(slug, comp_folder)
+
+    # 4) profile it (describe_schema will unpack any .zip/.gz/.tsv as needed)
+    profile = describe_schema(str(raw_file), struct["target_column"])
+    if "dataset_schema" in profile:
+        struct["dataset_schema"] = profile["dataset_schema"]
+        struct["target_summary"]  = profile["target_summary"]
+    else:
+        print(f"[WARN] Schema profiling failed for {slug}: {profile.get('error')}")

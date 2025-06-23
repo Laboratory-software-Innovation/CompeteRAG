@@ -2,6 +2,7 @@ import json
 import re
 import pandas as pd
 from pathlib import Path
+from utils import extract_tabular, download_train_file
 
 import openai
 
@@ -53,11 +54,11 @@ def structure_and_label_competition(
         "Emit **only** a JSON object with exactly these keys:\n"
         "  slug                              (the competition slug)\n"
         "  competition_type          (e.g. “regression” or “classification”)\n"
-        "  competition_problem_subtype       (e.g. “binary classification”)\n"
-        "  competition_problem_description   (2–3 sentence summary)\n"
-        "  competition_dataset_type          (e.g. “tabular”)\n"
-        "  competition_dataset_description   (brief list of each feature name + its type)\n"
-        "  target_column                     (exact name of the label column in train.csv)\n"
+        "  competition_problem_subtype       (a single, concise phrase—lower-case words and hyphens only—describing the specific subtype, e.g. “binary classification”, “multiclass classification”, “multi-label classification”, “time-series forecasting”, “continuous regression”, “ordinal regression”, etc. or any other that fits.)\n"
+        "  competition_problem_description   Dense, short, and detailed description of the problem, what needs to be found, no repetitive words\n"
+        "  competition_dataset_type          choose exactly one primary data modality from this list (capitalized exactly): Tabular, Time-series, Text, Image, Audio, Video, Geospatial, Graph, Multimodal. \n"
+        "  competition_dataset_description    based on the provided `dataset_schema` and `target schema` give a brief list of each feature name + its type\n"
+        "  target_column                     (an array of the exact label column name(s) in train.csv)\n"
         "No extra fields, no markdown fences, just valid JSON."
       )
     }
@@ -98,18 +99,20 @@ def solve_competition_with_code(
     comp_meta = parse_competition_metadata(html)
     comp_meta["slug"] = slug
     driver.quit()
-
-
-    # ── 2) Download & profile train.csv once
+    
     comp_folder = Path("train") / slug
     comp_folder.mkdir(parents=True, exist_ok=True)
-    train_csv = comp_folder / "train.csv"
-    if not train_csv.exists():
-        kaggle_api.competition_download_file(slug, "train.csv", path=str(comp_folder))
 
-    profile = describe_schema(str(train_csv), class_col)
-    
-    print(profile)
+    train_file = download_train_file(slug, comp_folder)
+    if not train_file:
+        return
+
+    # 4) unpack/sniff/describe
+    train_csv = extract_tabular(train_file)
+    profile   = describe_schema(str(train_csv), class_col)
+    if "error" in profile:
+        print(f"[WARN] Schema profiling failed: {profile['error']}")
+        return
 
     comp_struct = structure_and_label_competition(comp_meta, profile)
     desc_path = Path(f"{slug}_desc.json")
