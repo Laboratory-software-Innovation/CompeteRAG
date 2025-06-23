@@ -33,7 +33,7 @@ def find_similar_ids(
 
     # Safely extract descriptions, stringify non-strings
     prob_desc = meta.get("competition_problem_description", "")
-    data_desc = meta.get("competition_dataset_description", "")
+    data_desc = meta.get("dataset_metadata", "")
     if not isinstance(prob_desc, str):
         prob_desc = json.dumps(prob_desc, ensure_ascii=False)
     if not isinstance(data_desc, str):

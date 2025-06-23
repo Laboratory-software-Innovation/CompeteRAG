@@ -56,7 +56,7 @@ def build_index(df_structured: pd.DataFrame,
     def _combine_text(row):
         parts = [
             row["competition_problem_description"].strip(),
-            row["competition_dataset_description"].strip(),
+            row["dataset_metadata"].strip(),
             #row["notebook_description"].strip(), also since we are using preprocessing NLP and code segments
         ]
         # join with a separator; extra spaces don't harm SimCSE

@@ -140,7 +140,7 @@ def parse_competition_metadata(html: str) -> dict:
 
     return {
         "title": title,
-        "problem_description": full_desc, 
+        "competition_metadata": full_desc, 
     }
 
 
@@ -191,6 +191,10 @@ def extract_tabular(file_path: str) -> str:
     # not an archive: assume plain .csv or .tsv
     return file_path
 
+
+
+
+
 def describe_schema(
     source_path: str,
     target_column: Union[str, List[str]]
@@ -201,10 +205,16 @@ def describe_schema(
     3) Load with pandas (python engine, skip bad lines)
     4) Build a schema and target summary for one or more columns
     """
-    # 0) unpack if needed
+    # 0) normalize target list
+    if isinstance(target_column, str):
+        targets = [target_column]
+    else:
+        targets = list(target_column)
+
+    # 1) unpack if needed
     csv_path = extract_tabular(source_path)
 
-    # 1) delimiter sniffing
+    # 2) sniff delimiter
     with open(csv_path, 'rb') as f:
         sample = f.read(2048)
     try:
@@ -212,63 +222,60 @@ def describe_schema(
     except UnicodeDecodeError:
         text = sample.decode('latin1', errors='ignore')
     try:
-        dialect = csv.Sniffer().sniff(text, delimiters=[',','\t',';'])
-        sep = dialect.delimiter
+        sep = csv.Sniffer().sniff(text, delimiters=[',','\t',';']).delimiter
     except csv.Error:
         sep = '\t' if csv_path.lower().endswith('.tsv') else ','
 
-    # 2) read into DataFrame
-    df = None
-    last_err = None
+    # 3) load DataFrame
     for enc in ("utf-8","utf-8-sig","latin1","ISO-8859-1"):
         try:
             df = pd.read_csv(
-                csv_path,
-                sep=sep,
-                encoding=enc,
-                engine='python',
-                quoting=csv.QUOTE_NONE,
+                csv_path, sep=sep, encoding=enc,
+                engine='python', quoting=csv.QUOTE_NONE,
                 on_bad_lines='skip'
             )
             break
-        except Exception as e:
-            last_err = e
+        except Exception:
+            df = None
     if df is None:
-        return {"error": f"Failed to load (sep={sep!r}): {last_err}"}
+        raise RuntimeError(f"Failed to read {csv_path}")
 
-    # 3) build schema
+    # 4) basic info
     n_rows, n_cols = df.shape
-    schema = []
+
+    # 5) compute missing
+    missing_counts = df.isnull().sum()
+
+    # 6) build feature list
+    features: List[Dict[str,Any]] = []
     for col in df.columns:
         dtype = df[col].dtype
-        if pd.api.types.is_numeric_dtype(dtype):
-            col_type = "numeric"
+        if pd.api.types.is_integer_dtype(dtype):
+            t = "int"
+        elif pd.api.types.is_float_dtype(dtype):
+            t = "float"
         elif pd.api.types.is_datetime64_any_dtype(dtype):
-            col_type = "datetime"
+            t = "datetime"
+        elif pd.api.types.is_bool_dtype(dtype):
+            t = "boolean"
         else:
-            unique_count = df[col].nunique(dropna=True)
-            col_type = "categorical" if unique_count < n_rows * 0.05 else "text"
+            t = "string"
 
-        entry = {"name": col, "type": col_type}
-        ser = df[col].dropna()
-        if col_type == "numeric":
-            entry.update(min=float(ser.min()), median=float(ser.median()), max=float(ser.max()))
-        elif col_type == "categorical":
-            vc = ser.value_counts()
-            entry.update(cardinality=int(vc.size), top=vc.index[:3].astype(str).tolist())
-        schema.append(entry)
+        miss_pct = round(float(missing_counts[col]) / n_rows * 100, 2)
+        is_tgt = col in targets
 
-    # 4) target summary for one or more columns
-    # normalize to list
-    if isinstance(target_column, str):
-        targets = [target_column]
-    else:
-        targets = list(target_column)
+        features.append({
+            "name": col,
+            "type": t,
+            "missing_pct": miss_pct,
+            "is_target": is_tgt
+        })
 
-    target_summary: Dict[str, Any] = {}
+    # 7) build target summary
+    target_summary: Dict[str,Any] = {}
     for tgt in targets:
         if tgt not in df.columns:
-            target_summary[tgt] = {"error": "column not found"}
+            target_summary[tgt] = {"error": "not found"}
             continue
 
         ser = df[tgt].dropna()
@@ -280,17 +287,15 @@ def describe_schema(
                 "max": float(stats["max"])
             }
         else:
-            pct = (ser.value_counts(normalize=True) * 100).round(2)
-            # cast to simple dict
-            target_summary[tgt] = {str(k): float(v) for k, v in pct.items()}
+            vc = (ser.value_counts(normalize=True) * 100).round(2)
+            # simple dict of class → percent
+            target_summary[tgt] = {str(k): float(v) for k,v in vc.items()}
 
     return {
-        "source": source_path,
         "shape": {"rows": n_rows, "cols": n_cols},
-        "dataset_schema": schema,
+        "dataset_schema": features,
         "target_summary": target_summary
     }
-
 
 def download_train_file(slug: str, path):
     comp_folder = Path(path) / slug

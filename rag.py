@@ -31,8 +31,7 @@ logging.set_verbosity_error()
 def print_usage():
     print("""
         Usage:
-        python rag.py collect_and_structured
-        python rag.py build_index
+        python rag.py cb            - Collect and build 
         python rag.py find_similar
         python rag.py find_similar_desc <description.txt> [notebooks|comps] [top_k]
 
@@ -49,15 +48,11 @@ if __name__ == "__main__":
 
     cmd = sys.argv[1].lower()
 
-    if cmd == "collect_and_structured":
-
+    if cmd == "cb":
         start_slug = sys.argv[2] if len(sys.argv) >= 3 else None
         df_struct = collect_and_structured(num_competitions=147,max_per_keyword=5, start=start_slug)
-
         print(f"[OK] Collected and structured {len(df_struct)} notebooks.")
         sys.exit(0)
-
-    elif cmd == "build_index":
         if not Path("notebooks_structured.csv").exists():
             print("[ERROR] Please run `collect_and_structured` first.")
             sys.exit(1)

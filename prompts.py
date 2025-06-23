@@ -8,7 +8,7 @@ import openai
 
 from config import OPENAI_MODEL,kaggle_api
 from selenium_helper import init_selenium_driver
-from utils import fetch_competition_page_html, parse_competition_metadata, describe_schema
+from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab, describe_schema
 from similarity import find_similar_ids
 
 def normalize_kernel_ref(ref: str) -> str:
@@ -32,7 +32,6 @@ def normalize_kernel_ref(ref: str) -> str:
 
 def structure_and_label_competition(
     comp_meta: dict,
-    dataset_schema: dict
 ) -> dict:
     """
     Returns exactly these keys:
@@ -42,7 +41,7 @@ def structure_and_label_competition(
         "competition_problem_subtype": …,
         "competition_problem_description": …,
         "competition_dataset_type": …,
-        "competition_dataset_description": …,
+        "dataset_metadata": …,
         "target_column": …
       }
     """
@@ -56,8 +55,8 @@ def structure_and_label_competition(
         "  competition_type          (e.g. “regression” or “classification”)\n"
         "  competition_problem_subtype       (a single, concise phrase—lower-case words and hyphens only—describing the specific subtype, e.g. “binary classification”, “multiclass classification”, “multi-label classification”, “time-series forecasting”, “continuous regression”, “ordinal regression”, etc. or any other that fits.)\n"
         "  competition_problem_description   Dense, short, and detailed description of the problem, what needs to be found, no repetitive words\n"
+        "  dataset_metadata                 Rewrite the given dataset_metadata in plain English as a single coherent paragraph, removing any non-human symbols (no bullets, special characters, or markdown).\n"
         "  competition_dataset_type          choose exactly one primary data modality from this list (capitalized exactly): Tabular, Time-series, Text, Image, Audio, Video, Geospatial, Graph, Multimodal. \n"
-        "  competition_dataset_description    based on the provided `dataset_schema` and `target schema` give a brief list of each feature name + its type\n"
         "  target_column                     (an array of the exact label column name(s) in train.csv)\n"
         "No extra fields, no markdown fences, just valid JSON."
       )
@@ -65,8 +64,8 @@ def structure_and_label_competition(
     user = {
       "role": "user",
       "content": json.dumps({
-        "competition_metadata": comp_meta,
-        "dataset_schema":       dataset_schema
+        "competition_metadata": comp_meta["competition_metadata"],
+        "dataset_metadata":     comp_meta["dataset_metadata"]
       }, ensure_ascii=False)
     }
 
@@ -98,6 +97,10 @@ def solve_competition_with_code(
     html   = fetch_competition_page_html(slug, driver)
     comp_meta = parse_competition_metadata(html)
     comp_meta["slug"] = slug
+
+    # now fetch & parse the /data tab
+    data_html = fetch_competition_page_html(f"{slug}/data", driver)
+    comp_meta["dataset_metadata"] = parse_competition_data_tab(data_html)   
     driver.quit()
     
     comp_folder = Path("train") / slug
@@ -114,7 +117,7 @@ def solve_competition_with_code(
         print(f"[WARN] Schema profiling failed: {profile['error']}")
         return
 
-    comp_struct = structure_and_label_competition(comp_meta, profile)
+    comp_struct = structure_and_label_competition(comp_meta)
     desc_path = Path(f"{slug}_desc.json")
     desc_path.write_text(json.dumps(comp_struct, ensure_ascii=False, indent=2), encoding="utf-8")  
 
@@ -272,14 +275,16 @@ def solve_competition_with_code(
     # new comp + schema
     user_parts = [
       "### New competition ###",
-      json.dumps(comp_struct, indent=2, ensure_ascii=False),
+      json.dumps(comp_struct["competition_problem_description"], indent=2, ensure_ascii=False),
+      "### Dataset Metadata ###",
+      json.dumps(comp_struct["dataset_metadata"], indent=2, ensure_ascii=False),
       "\n### Dataset schema ###",
       json.dumps(profile, indent=2, ensure_ascii=False),
       "\n### Example summaries ###"
     ]
 
 
-    # loop through the examples list you actually populated
+    # loop through the retrieved code and preprocessing pieces
     for rank, kr, sc, prep, layers in examples:
         user_parts.append(
             f"{rank}. `{kr}` (score={sc:.3f}):\n"
