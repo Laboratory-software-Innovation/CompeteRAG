@@ -32,7 +32,9 @@ def label_competition(comp_meta: dict) -> dict:
             "You are an expert data scientist.  "
             "From the competition and dataset metadata, emit **only** a JSON object with exactly these keys:\n"
             "target_column: an array of all column names in train.csv that must be predicted\n"
+            "training_files: Based on dataset_metadata give [`<string>`, …],  an array of all training tabular files that need to be downloaded\n"
             "No extra keys, no prose, no markdown—just a JSON object."
+            "You also have access to `dataset_metadata` in the competition_metadata payload—use them to ground your explanations.\n"
         )
     }
 
@@ -63,6 +65,11 @@ def label_competition(comp_meta: dict) -> dict:
         # wrap single string in a list
         result["target_column"] = [result["target_column"]]
 
+    # Normalize: ensure the key 'training_files' holding a list
+    if "training_file" in result and "training_files" not in result:
+        result["training_files"] = [result.pop("training_file")]
+    elif "training_files" in result and not isinstance(result["training_files"], list):
+        result["training_files"] = [result["training_files"]]
     return result
 
 
@@ -78,8 +85,6 @@ def get_comp_files(slug: str):
     for row in reader:
         print(row[0])
 
-
-#get_comp_files("scrabble-player-rating")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Parsing a playground page for preprocessing steps -> NLP and parsing the code layers (tensorflow & pytorch)
@@ -223,7 +228,7 @@ def ask_llm_for_structured_output(comp_meta: str, notebook_path: str) -> dict:
         '  "notebook_model_layers_code": "<complete code snippet defining each layer with all its parameters>",\n'
         '  "used_technique": "<\\"DL\\" or \\"ML\\">",\n'
         '  "library": "<library>",\n'
-        '  "target_column": [ "<string>", … ] an array of all column names in train.csv that must be predicted" \n'
+        '  "target_column": [ "<string>", … ] an array of all column names in train.csv that must be predicted \n'
         "}\n\n"
         "You also have access to `dataset_metadata` in the competition_metadata payload—use them to ground your explanations.\n"
         "- For `preprocessing_steps`, list every transformation (scaling, normalization, one-hot encoding, etc.) in plain English.\n"
@@ -287,6 +292,7 @@ def collect_and_structured(num_competitions: int = 10, max_per_keyword: int = 5,
             "library",
             "kernel_ref",
             "kernel_link"
+            "training_files"
         ])
 
     # Fetch slugs, either fresh or resuming
@@ -298,10 +304,10 @@ def collect_and_structured(num_competitions: int = 10, max_per_keyword: int = 5,
 
     records = []
     driver = init_selenium_driver()
-
+    t = 0
     for slug in all_slugs:
-        if slug != "playground-series-s5e6":
-            continue
+        if t == 2: break
+        t+=1
         print(f"\n[INFO] Processing competition: {slug}")
         comp_folder = Path("solutions") / slug
         comp_folder.mkdir(parents=True, exist_ok=True)
@@ -318,25 +324,28 @@ def collect_and_structured(num_competitions: int = 10, max_per_keyword: int = 5,
         labels = label_competition(comp_meta)
         comp_meta.update(labels)
         print(comp_meta["target_column"])
+        print(comp_meta["training_files"])
+        ##In case we need to download them
+        # downloaded_paths = download_train_file(
+        #     comp_meta["slug"],
+        #     comp_folder,
+        #     comp_meta["training_files"]
+        # )
 
-        # — 3) Download & profile train.csv exactly once
-        train_csv = download_train_file(comp_meta["slug"], comp_folder) 
-        if not train_csv:
-            return
+        # # 3) profile each one
+        # all_schemas = {}
+        # for p in downloaded_paths:
+        #     tabular = extract_tabular(str(p))
+        #     schema = describe_schema(
+        #         source_path=tabular,
+        #         target_column=comp_meta["target_column"]
+        #     )
+        #     all_schemas[p.name] = schema
 
-        train_csv = extract_tabular(train_csv)
-        profile = describe_schema(str(train_csv), comp_meta["target_column"])
-        comp_meta["dataset_schema"]  = profile["dataset_schema"]
-        comp_meta["target_summary"] = profile["target_summary"]
-        comp_meta["shape"] = profile["shape"]
-        print("----------DATASET--SCHEMA-------------")
-        print(comp_meta["dataset_schema"])
-        print("------------TARGET--SUMMARY-----------------")
-        print(comp_meta["target_summary"])
-        print("-----------SHAPE------------------")
-        print(comp_meta["shape"])
-        print(comp_meta["dataset_metadata"])
-        print("----------DONE-------------")
+        # # now you have a dict mapping each filename → its profile
+        # comp_meta["data_profiles"] = all_schemas
+        # print(comp_meta["data_profiles"])
+
 
         tf_count, pt_count = 0, 0
 
@@ -411,6 +420,7 @@ def collect_and_structured(num_competitions: int = 10, max_per_keyword: int = 5,
             # Immediately ask the LLM for structured output
             struct = ask_llm_for_structured_output(comp_meta, str(final_path))
 
+
             if struct is None:
                 continue
 
@@ -434,7 +444,8 @@ def collect_and_structured(num_competitions: int = 10, max_per_keyword: int = 5,
                     struct["used_technique"],
                     struct["library"],
                     kernel_ref, 
-                    kernel_link
+                    kernel_link,
+                    #struct["training_files"]
                 ])
 
                 # Build the combined record
@@ -452,6 +463,7 @@ def collect_and_structured(num_competitions: int = 10, max_per_keyword: int = 5,
                     "library":                         struct["library"],          # "TensorFlow"
                     "kernel_ref":                      kernel_ref,
                     "kernel_link":                     kernel_link,
+                    #"training_files":                  struct["training_files"],
                     "username":                        username,
                     "last_run_date":                   row.get("lastRunTime"),
                     "votes":                           row.get("totalVotes"),
@@ -551,7 +563,8 @@ def collect_and_structured(num_competitions: int = 10, max_per_keyword: int = 5,
                     struct["used_technique"],
                     struct["library"],
                     kernel_ref,
-                    kernel_link
+                    kernel_link,
+                    #struct["training_files"]
                 ])
 
                 rec = {
@@ -568,6 +581,7 @@ def collect_and_structured(num_competitions: int = 10, max_per_keyword: int = 5,
                     "library":                         struct["library"],          # "PyTorch"
                     "kernel_ref":                      kernel_ref,
                     "kernel_link":                     kernel_link,
+                    #"training_files":                  struct["training_files"],
                     "username":                        username,
                     "last_run_date":                   row.get("lastRunTime"),
                     "votes":                           row.get("totalVotes"),
@@ -590,5 +604,5 @@ def collect_and_structured(num_competitions: int = 10, max_per_keyword: int = 5,
     # Save that DataFrame to Excel (optional)
     df_structured.to_excel(EXCEL_FILE, index=False)
     print(f"[INFO] Structured data saved to {EXCEL_FILE}")
-
+    print(df_structured)
     return df_structured

@@ -10,7 +10,7 @@ from config import OPENAI_MODEL,kaggle_api
 from selenium_helper import init_selenium_driver
 from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab, describe_schema
 from similarity import find_similar_ids
-from collection import label_competition
+
 
 def normalize_kernel_ref(ref: str) -> str:
     """
@@ -34,17 +34,7 @@ def normalize_kernel_ref(ref: str) -> str:
 def structure_and_label_competition(
     comp_meta: dict,
 ) -> dict:
-    """
-    Returns exactly these keys:
-      {
-        "competition_type": …,
-        "competition_problem_subtype": …,
-        "competition_problem_description": …,
-        "competition_dataset_type": …,
-        "dataset_metadata": …,
-        "target_column": …
-      }
-    """
+
     system = {
       "role": "system",
       "content": (
@@ -57,7 +47,10 @@ def structure_and_label_competition(
         "  dataset_metadata                 Rewrite the given dataset_metadata in plain English as a single coherent paragraph, removing any non-human symbols (no bullets, special characters, or markdown).\n"
         "  competition_dataset_type          choose exactly one primary data modality from this list (capitalized exactly): Tabular, Time-series, Text, Image, Audio, Video, Geospatial, Graph, Multimodal. \n"
         "  target_column                     (an array of the exact label column name(s) in train.csv)\n"
-        "No extra fields, no markdown fences, just valid JSON."
+        "  training_files                    Based on dataset_metadata give [`<string>`, …],  an array of all training tabular files that need to be downloaded\n"
+        "  files_preprocessing_instructions  Based on the dataset_metadata and the files observed, write an instruction on how to preprocess(drop, split, etc)"  
+       "No extra fields, no markdown fences, just valid JSON.\n"
+        "You also have access to `dataset_metadata` in the competition_metadata payload—use them to ground your explanations.\n"
       )
     }
     user = {
@@ -104,20 +97,30 @@ def solve_competition_with_code(
     comp_folder = Path("train") / slug
     comp_folder.mkdir(parents=True, exist_ok=True)
 
-    train_file = download_train_file(slug, comp_folder)
-    if not train_file:
-        return
-
-    # 4) unpack/sniff/describe
-    train_csv = extract_tabular(train_file)
-    target = label_competition(comp_meta)["target_column"]
-    print(target)
-    profile   = describe_schema(str(train_csv), target)
-    if "error" in profile:
-        print(f"[WARN] Schema profiling failed: {profile['error']}")
-        return
-
     comp_struct = structure_and_label_competition(comp_meta)
+
+    downloaded_paths = download_train_file(
+        comp_meta["slug"],
+        comp_folder,
+        comp_struct["training_files"]
+    )
+
+    # 3) profile each one
+    all_schemas = {}
+    for p in downloaded_paths:
+        tabular = extract_tabular(str(p))
+        schema = describe_schema(
+            source_path=tabular,
+            target_column=comp_struct["target_column"]
+        )
+        all_schemas[p.name] = schema
+
+    # now you have a dict mapping each filename → its profile
+    comp_struct["data_profiles"] = all_schemas
+    print(comp_struct["data_profiles"])
+
+
+    
     desc_path = Path(f"{slug}_desc.json")
     desc_path.write_text(json.dumps(comp_struct, ensure_ascii=False, indent=2), encoding="utf-8")  
 
@@ -271,7 +274,11 @@ def solve_competition_with_code(
 
     print(comp_struct["competition_problem_description"])
     print(comp_struct["dataset_metadata"])
-    print(profile)
+    print("--------------------")
+    print(comp_meta["data_profiles"])
+    print("--------------------")
+    print(comp_meta["files_preprocessing_instructions"])
+    print("--------------------")
     # new comp + schema
     user_parts = [
       "### New competition ###",
@@ -279,7 +286,9 @@ def solve_competition_with_code(
       "### Dataset Metadata ###",
       json.dumps(comp_struct["dataset_metadata"], indent=2, ensure_ascii=False),
       "\n### Dataset schema ###",
-      json.dumps(profile, indent=2, ensure_ascii=False),
+      json.dumps(comp_meta["data_profiles"], indent=2, ensure_ascii=False),
+      "\n### Dataset preprocessing instructions ###",
+      json.dumps(comp_meta["files_preprocessing_instructions"], indent=2, ensure_ascii=False),
       "\n### Example summaries ###"
     ]
 

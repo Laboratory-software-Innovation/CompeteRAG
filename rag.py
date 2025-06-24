@@ -59,10 +59,10 @@ if __name__ == "__main__":
         df_struct = pd.read_csv("notebooks_structured.csv")
         build_index(df_struct)
         sys.exit(0)
-    elif cmd == "find_similar_desc":
-        # Usage: python3 rag.py find_similar_desc <desc_and_meta.json> <top_k> [<exclude_competition>]
+    elif cmd == "fd":
+        # Usage: python3 rag.py fd <desc_and_meta.json> <top_k> [<exclude_competition>]
         if len(sys.argv) < 4:
-            print("Usage: python3 rag.py find_similar_desc <desc_meta.json> <top_k> [<exclude_competition>]")
+            print("Usage: python3 rag.py fd <desc_meta.json> <top_k> [<exclude_competition>]")
             sys.exit(1)
 
         desc_json    = sys.argv[2]
@@ -76,9 +76,9 @@ if __name__ == "__main__":
         )
         sys.exit(0)
 
-    elif cmd == "auto_solve_code":
+    elif cmd == "code":
         if len(sys.argv) < 4:
-            print("Usage: python rag.py auto_solve_code <slug> <class_col> [top_k] [Keras-Tuner True:1|False:0]")
+            print("Usage: python rag.py code <slug> <class_col> [top_k] [Keras-Tuner True:1|False:0]")
             sys.exit(1)
         slug      = sys.argv[2]
         class_col = sys.argv[3]

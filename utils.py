@@ -19,7 +19,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from config import ENCODER, MAX_NOTEBOOK_TOKENS, kaggle_api
 
-from typing import Any, List, Tuple, Dict, Union
+from typing import Any, List, Tuple, Dict, Union,Optional
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -147,7 +147,7 @@ def parse_competition_metadata(html: str) -> dict:
     Describe dataset 
 """
 
-def extract_tabular(file_path: str) -> str:
+def extract_tabular(file_path: str) -> Tuple[Optional[tempfile.TemporaryDirectory], str]:
     """
     If file_path is an archive (.zip, .csv.zip, .tsv.zip, .7z, .gz),
     extract the first .csv or .tsv inside a temp dir and return its path.
@@ -156,38 +156,42 @@ def extract_tabular(file_path: str) -> str:
     # read magic bytes
     with open(file_path, 'rb') as f:
         magic = f.read(6)
-    temp_dir = tempfile.mkdtemp()
+
 
     # ZIP archives (.zip, .csv.zip, .tsv.zip, .zip)
-    if magic[:4] == b'PK\x03\x04':
-        with zipfile.ZipFile(file_path, 'r') as z:
-            members = [n for n in z.namelist() if n.lower().endswith(('.csv', '.tsv'))]
-            if not members:
-                raise RuntimeError(f"No .csv or .tsv found in ZIP {file_path}")
-            member = members[0]
-            z.extract(member, temp_dir)
-            return os.path.join(temp_dir, member)
-
+    if magic[:4] == b'PK\x03\x04' or file_path.lower().endswith(('.zip', '.csv.zip', '.tsv.zip')):
+        z = zipfile.ZipFile(file_path, 'r')
+        members = [n for n in z.namelist() if n.lower().endswith(('.csv', '.tsv'))]
+        if not members:
+            raise RuntimeError(f"No .csv or .tsv found in ZIP {file_path}")
+        member = members[0]
+        temp_dir = tempfile.TemporaryDirectory()
+        z.extract(member, temp_dir.name)
+        return temp_dir, os.path.join(temp_dir.name, member)
+    
     # 7z archives (.7z)
-    if magic == b'7z\xBC\xAF\'\x1C':
+    if magic == b'7z\xBC\xAF\'\x1C' or file_path.lower().endswith('.7z'):
+        temp_dir = tempfile.TemporaryDirectory()
         with py7zr.SevenZipFile(file_path, 'r') as z:
             members = [n for n in z.getnames() if n.lower().endswith(('.csv', '.tsv'))]
             if not members:
                 raise RuntimeError(f"No .csv or .tsv found in 7z {file_path}")
             member = members[0]
-            z.extract(targets=[member], path=temp_dir)
-            return os.path.join(temp_dir, member)
-
+            z.extract(targets=[member], path=temp_dir.name)
+        return temp_dir, os.path.join(temp_dir.name, member)
+    
     # gzip (.gz)
     if magic[:2] == b'\x1f\x8b':
-        base = os.path.basename(file_path)[:-3]  # strip .gz
-        out_path = os.path.join(temp_dir, base)
+        temp_dir = tempfile.TemporaryDirectory()
+        base = os.path.basename(file_path)[:-3]
+        out_path = os.path.join(temp_dir.name, base)
         with gzip.open(file_path, 'rb') as src, open(out_path, 'wb') as dst:
             dst.write(src.read())
-        return out_path
+        return temp_dir, out_path
+
 
     # not an archive: assume plain .csv or .tsv
-    return file_path
+    return None, file_path
 
 
 
@@ -210,132 +214,120 @@ def describe_schema(
         targets = list(target_column)
 
     # 1) unpack if needed
-    csv_path = extract_tabular(source_path)
+    temp_ctx, csv_path = extract_tabular(source_path)
 
     # 2) sniff delimiter
-    with open(csv_path, 'rb') as f:
-        sample = f.read(2048)
     try:
-        text = sample.decode('utf-8')
-    except UnicodeDecodeError:
-        text = sample.decode('latin1', errors='ignore')
-    try:
-        sep = csv.Sniffer().sniff(text, delimiters=[',','\t',';']).delimiter
-    except csv.Error:
-        sep = '\t' if csv_path.lower().endswith('.tsv') else ','
-
-    # 3) load DataFrame
-    for enc in ("utf-8","utf-8-sig","latin1","ISO-8859-1"):
+        # sniff delimiter
+        with open(csv_path, 'rb') as f:
+            sample = f.read(2048)
         try:
-            df = pd.read_csv(
-                csv_path, sep=sep, encoding=enc,
-                engine='python', quoting=csv.QUOTE_NONE,
-                on_bad_lines='skip'
-            )
-            break
-        except Exception:
-            df = None
-    if df is None:
-        raise RuntimeError(f"Failed to read {csv_path}")
+            text = sample.decode('utf-8')
+        except UnicodeDecodeError:
+            text = sample.decode('latin1', errors='ignore')
+        try:
+            sep = csv.Sniffer().sniff(text, delimiters=[',','\t',';']).delimiter
+        except csv.Error:
+            sep = '\t' if csv_path.lower().endswith('.tsv') else ','
 
-    # 4) basic info
-    n_rows, n_cols = df.shape
+        # load
+        df = None
+        for enc in ("utf-8","utf-8-sig","latin1","ISO-8859-1"):
+            try:
+                df = pd.read_csv(
+                    csv_path, sep=sep, encoding=enc,
+                    engine='python', quoting=csv.QUOTE_NONE,
+                    on_bad_lines='skip'
+                )
+                break
+            except Exception:
+                continue
+        if df is None:
+            raise RuntimeError(f"Failed to read {csv_path}")
 
-    # 5) compute missing
-    missing_counts = df.isnull().sum()
+        # shape & missing
+        n_rows, n_cols = df.shape
+        missing = df.isnull().sum()
 
-    # 6) build feature list
-    features: List[Dict[str,Any]] = []
-    for col in df.columns:
-        dtype = df[col].dtype
-        if pd.api.types.is_integer_dtype(dtype):
-            t = "int"
-        elif pd.api.types.is_float_dtype(dtype):
-            t = "float"
-        elif pd.api.types.is_datetime64_any_dtype(dtype):
-            t = "datetime"
-        elif pd.api.types.is_bool_dtype(dtype):
-            t = "boolean"
-        else:
-            t = "string"
+        # features
+        features: List[Dict[str, Any]] = []
+        for col in df.columns:
+            dtype = df[col].dtype
+            if pd.api.types.is_integer_dtype(dtype):
+                t = "int"
+            elif pd.api.types.is_float_dtype(dtype):
+                t = "float"
+            elif pd.api.types.is_datetime64_any_dtype(dtype):
+                t = "datetime"
+            elif pd.api.types.is_bool_dtype(dtype):
+                t = "boolean"
+            else:
+                t = "string"
+            miss_pct = round(float(missing[col]) / n_rows * 100, 2)
+            features.append({
+                "name": col,
+                "type": t,
+                "missing_pct": miss_pct,
+                "is_target": col in targets
+            })
 
-        miss_pct = round(float(missing_counts[col]) / n_rows * 100, 2)
-        is_tgt = col in targets
+        # target summary
+        target_summary: Dict[str, Any] = {}
+        for tgt in targets:
+            if tgt not in df.columns:
+                target_summary[tgt] = {"error": "not found"}
+                continue
+            ser = df[tgt].dropna()
+            if pd.api.types.is_numeric_dtype(df[tgt].dtype):
+                stats = ser.describe()
+                target_summary[tgt] = {
+                    "min": float(stats["min"]),
+                    "median": float(stats["50%"]),
+                    "max": float(stats["max"])
+                }
+            else:
+                vc = (ser.value_counts(normalize=True) * 100).round(2)
+                target_summary[tgt] = {str(k): float(v) for k, v in vc.items()}
 
-        features.append({
-            "name": col,
-            "type": t,
-            "missing_pct": miss_pct,
-            "is_target": is_tgt
-        })
+        return {
+            "shape": {"rows": n_rows, "cols": n_cols},
+            "dataset_schema": features,
+            "target_summary": target_summary
+        }
 
-    # 7) build target summary
-    target_summary: Dict[str,Any] = {}
-    for tgt in targets:
-        if tgt not in df.columns:
-            target_summary[tgt] = {"error": "not found"}
-            continue
+    finally:
+        if temp_ctx is not None:
+            temp_ctx.cleanup()
 
-        ser = df[tgt].dropna()
-        if pd.api.types.is_numeric_dtype(df[tgt].dtype):
-            stats = ser.describe()
-            target_summary[tgt] = {
-                "min": float(stats["min"]),
-                "median": float(stats["50%"]),
-                "max": float(stats["max"])
-            }
-        else:
-            vc = (ser.value_counts(normalize=True) * 100).round(2)
-            # simple dict of class → percent
-            target_summary[tgt] = {str(k): float(v) for k,v in vc.items()}
-
-    return {
-        "shape": {"rows": n_rows, "cols": n_cols},
-        "dataset_schema": features,
-        "target_summary": target_summary
-    }
-
-def download_train_file(slug: str, path):
+def download_train_file(slug: str, path, files_list: List[str]) -> List[Path]:
     comp_folder = Path(path) / slug
     comp_folder.mkdir(parents=True, exist_ok=True)
 
-    check_exts = [
-        ".csv", ".tsv",
-        ".csv.zip", ".tsv.zip",
-        ".csv.gz",  ".tsv.gz"
-    ]
-
-    # 1) see if any already exist
-    for ext in check_exts:
-        candidate = comp_folder / f"train{ext}"
-        if candidate.exists():
-            return candidate
-
-    # 2) none exist → list competition files & download the first match
-    files = kaggle_api.competition_list_files(slug).files
-    lc_to_orig = {f.name.lower(): f.name for f in files}
-    for ext in check_exts:
-        key = f"train{ext}"
-        if key in lc_to_orig:
-            kaggle_api.competition_download_file(slug, lc_to_orig[key], path=str(comp_folder))
-            return comp_folder / lc_to_orig[key]
-
-    # 3) still nothing → warn
-    print(f"[WARN] No train file found for {slug}")
-    return None
+    local_paths = []
+    for fname in files_list:
+        # skip if we already have it
+        dest = comp_folder / fname
+        if not dest.exists():
+            kaggle_api.competition_download_file(
+                slug,
+                fname,
+                path=str(comp_folder)
+            )
+        local_paths.append(dest)
+    return local_paths
 
 
-def download_csv(path: str, struct: dict):
-    slug = struct["slug"]
-    comp_folder = Path("solutions") / slug
-    comp_folder.mkdir(parents=True, exist_ok=True)
+# def download_csv(path: str, struct: dict):
+#     slug = struct["slug"]
+#     comp_folder = Path("solutions") / slug
+#     comp_folder.mkdir(parents=True, exist_ok=True)
 
-    raw_file = download_train_file(slug, comp_folder)
+#     raw_file = download_train_file(slug, comp_folder)
 
-    # 4) profile it (describe_schema will unpack any .zip/.gz/.tsv as needed)
-    profile = describe_schema(str(raw_file), struct["target_column"])
-    if "dataset_schema" in profile:
-        struct["dataset_schema"] = profile["dataset_schema"]
-        struct["target_summary"]  = profile["target_summary"]
-    else:
-        print(f"[WARN] Schema profiling failed for {slug}: {profile.get('error')}")
+#     # 4) profile it (describe_schema will unpack any .zip/.gz/.tsv as needed)
+#     profile = describe_schema(str(raw_file), struct["target_column"])
+#     if "dataset_schema" in profile:
+#         struct["dataset_schema"] = profile["dataset_schema"]
+#         struct["target_summary"]  = profile["target_summary"]
+#     else:
+#         print(f"[WARN] Schema profiling failed for {slug}: {profile.get('error')}")
