@@ -8,7 +8,7 @@ import openai
 
 from config import OPENAI_MODEL,kaggle_api
 from selenium_helper import init_selenium_driver
-from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab, describe_schema
+from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab, describe_schema, compact_profile_for_llm
 from similarity import find_similar_ids
 
 
@@ -48,7 +48,7 @@ def structure_and_label_competition(
         "  competition_dataset_type          choose exactly one primary data modality from this list (capitalized exactly): Tabular, Time-series, Text, Image, Audio, Video, Geospatial, Graph, Multimodal. \n"
         "  target_column                     (an array of the exact label column name(s) in train.csv)\n"
         "  training_files                    Based on dataset_metadata give [`<string>`, …],  an array of all training tabular files that need to be downloaded\n"
-        "  files_preprocessing_instructions  Based on the dataset_metadata and the files observed, write an instruction on how to preprocess(drop, split, etc)"  
+        "  files_preprocessing_instructions  Based on the dataset_metadata and the files observed, write an instruction on how to preprocess(drop features, split the dataset if no testing was given etc, etc)"  
        "No extra fields, no markdown fences, just valid JSON.\n"
         "You also have access to `dataset_metadata` in the competition_metadata payload—use them to ground your explanations.\n"
       )
@@ -108,12 +108,21 @@ def solve_competition_with_code(
     # 3) profile each one
     all_schemas = {}
     for p in downloaded_paths:
-        tabular = extract_tabular(str(p))
-        schema = describe_schema(
-            source_path=tabular,
-            target_column=comp_struct["target_column"]
+        prof = describe_schema(
+        source_path=str(p),
+        target_column=comp_struct["target_column"]
         )
-        all_schemas[p.name] = schema
+
+        # 2) collapse both the schema *and* the target_summary if they’re too big
+        compacted = compact_profile_for_llm(
+            prof,
+            max_features=50,    # collapse runs if > n features
+            max_classes=50       # keep top n classes per target
+        )
+
+        # 3) stash under the filename
+        all_schemas[p.name] = compacted
+
 
     # now you have a dict mapping each filename → its profile
     comp_struct["data_profiles"] = all_schemas
@@ -273,11 +282,14 @@ def solve_competition_with_code(
     system = { "role": "system", "content": system_content }
 
     print(comp_struct["competition_problem_description"])
+    print("--------------------")
     print(comp_struct["dataset_metadata"])
     print("--------------------")
-    print(comp_meta["data_profiles"])
+    print(comp_struct["data_profiles"])
     print("--------------------")
-    print(comp_meta["files_preprocessing_instructions"])
+    print(comp_struct["files_preprocessing_instructions"])
+    print("--------------------")
+    print(comp_struct["training_files"])
     print("--------------------")
     # new comp + schema
     user_parts = [
@@ -286,9 +298,9 @@ def solve_competition_with_code(
       "### Dataset Metadata ###",
       json.dumps(comp_struct["dataset_metadata"], indent=2, ensure_ascii=False),
       "\n### Dataset schema ###",
-      json.dumps(comp_meta["data_profiles"], indent=2, ensure_ascii=False),
+      json.dumps(comp_struct["data_profiles"], indent=2, ensure_ascii=False),
       "\n### Dataset preprocessing instructions ###",
-      json.dumps(comp_meta["files_preprocessing_instructions"], indent=2, ensure_ascii=False),
+      json.dumps(comp_struct["files_preprocessing_instructions"], indent=2, ensure_ascii=False),
       "\n### Example summaries ###"
     ]
 

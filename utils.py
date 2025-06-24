@@ -195,6 +195,116 @@ def extract_tabular(file_path: str) -> Tuple[Optional[tempfile.TemporaryDirector
 
 
 
+def compact_profile_for_llm(
+    profile: Dict[str,Any],
+    max_features: int = 50,
+    max_classes: int  = 50
+) -> Dict[str,Any]:
+    """
+    Collapse long schema runs (as you already do) *and* collapse/
+    truncate target_summary so that classes like "123-F_1_2" are
+    grouped by feature (F_1) into ranges, with count.  Any leftover
+    non-matching classes fall back to top-K + "... more".
+    """
+    # 1) collapse schema exactly as before
+    schema = profile["dataset_schema"]
+    if len(schema) <= max_features:
+        collapsed_schema = schema
+    else:
+        # your run‐detection & collapse logic here...
+        # (for brevity, imagine you’ve copied in your existing code)
+        collapsed_schema = _collapse_schema_runs(schema)
+
+    # 2) collapse target_summary
+    ts = profile["target_summary"]
+    truncated_ts: Dict[str,Any] = {}
+    # regex to pull out "<row>-<feature>_<idx>"
+    cls_pat = re.compile(r"^\d+-(F_\d+)_(\d+)$")
+
+    for tgt_col, dist in ts.items():
+        if isinstance(dist, dict) and all(isinstance(v, (int,float)) for v in dist.values()):
+            # group by feature prefix
+            groups: Dict[str, List[int]] = {}
+            others: Dict[str, float] = {}
+            for cls, pct in dist.items():
+                m = cls_pat.match(cls)
+                if m:
+                    feat, idx = m.group(1), int(m.group(2))
+                    groups.setdefault(feat, []).append(idx)
+                else:
+                    others[cls] = pct
+
+            collapsed_classes: Dict[str, Any] = {}
+            # first collapse all the feature‐based groups
+            for feat, idxs in groups.items():
+                lo, hi = min(idxs), max(idxs)
+                n = len(idxs)
+                collapsed_classes[f"{feat}_{lo}–{feat}_{hi} ({n} classes)"] = None
+
+            # then handle any “others” with top‐K + "... more"
+            if others:
+                # sort descending
+                items = sorted(others.items(), key=lambda x: x[1], reverse=True)
+                for cls, pct in items[:max_classes]:
+                    collapsed_classes[cls] = pct
+                rem = len(items) - max_classes
+                if rem > 0:
+                    collapsed_classes[f"... +{rem} more"] = None
+
+            truncated_ts[tgt_col] = collapsed_classes
+
+        else:
+            # numeric summary, leave as is
+            truncated_ts[tgt_col] = dist
+
+    return {
+        "shape":          profile["shape"],
+        "dataset_schema": collapsed_schema,
+        "target_summary": truncated_ts
+    }
+
+
+# Helper: your existing run collapsing logic, e.g.:
+
+def _collapse_schema_runs(schema: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
+    pat = re.compile(r"^(.*?)(\d+)$")
+    runs, current = [], [schema[0]]
+    for feat in schema[1:]:
+        prev = current[-1]
+        m1, m2 = pat.match(prev["name"]), pat.match(feat["name"])
+        if (
+            feat["type"] == prev["type"]
+            and m1 and m2
+            and m1.group(1) == m2.group(1)
+            and int(m2.group(2)) == int(m1.group(2)) + 1
+        ):
+            current.append(feat)
+        else:
+            runs.append(current)
+            current = [feat]
+    runs.append(current)
+
+    collapsed = []
+    for run in runs:
+        t = run[0]["type"]
+        if len(run) == 1:
+            f = run[0]
+            collapsed.append({
+                "columns":     f["name"],
+                "type":        t,
+                "missing_pct": f.get("missing_pct"),
+                "is_target":   f.get("is_target", False)
+            })
+        else:
+            start, end = run[0]["name"], run[-1]["name"]
+            missing_avg = round(sum(f.get("missing_pct",0) for f in run) / len(run), 2)
+            collapsed.append({
+                "columns":     f"{start}–{end} ({len(run)} cols)",
+                "type":        t,
+                "missing_pct": missing_avg,
+                "is_target":   any(f.get("is_target", False) for f in run)
+            })
+    return collapsed
 
 
 def describe_schema(
@@ -315,19 +425,3 @@ def download_train_file(slug: str, path, files_list: List[str]) -> List[Path]:
             )
         local_paths.append(dest)
     return local_paths
-
-
-# def download_csv(path: str, struct: dict):
-#     slug = struct["slug"]
-#     comp_folder = Path("solutions") / slug
-#     comp_folder.mkdir(parents=True, exist_ok=True)
-
-#     raw_file = download_train_file(slug, comp_folder)
-
-#     # 4) profile it (describe_schema will unpack any .zip/.gz/.tsv as needed)
-#     profile = describe_schema(str(raw_file), struct["target_column"])
-#     if "dataset_schema" in profile:
-#         struct["dataset_schema"] = profile["dataset_schema"]
-#         struct["target_summary"]  = profile["target_summary"]
-#     else:
-#         print(f"[WARN] Schema profiling failed for {slug}: {profile.get('error')}")
