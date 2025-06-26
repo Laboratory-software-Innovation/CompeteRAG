@@ -1,4 +1,3 @@
-
 import os
 import re
 import time
@@ -54,6 +53,9 @@ def truncate_to_token_limit(text: str, max_tokens: int = MAX_NOTEBOOK_TOKENS) ->
         return text
     return ENCODER.decode(tokens[:max_tokens])
 
+
+
+
 def parse_competition_data_tab(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     info = {}
@@ -84,9 +86,11 @@ def parse_competition_data_tab(html: str) -> dict:
                 p = li.find("p")
                 if p:
                     files.append(p.get_text(strip=True))
-    info["files_list"] = files
 
-    return info
+    return {
+        "dataset_metadata": info, 
+        "files_list": files
+    }
 
 
 def parse_competition_metadata(html: str) -> dict:

@@ -1,6 +1,3 @@
-#By Illya Gordyy and ChatGPT
-
-
 import os
 import sys
 
@@ -14,8 +11,8 @@ from transformers.utils import import_utils
 from collection    import collect_and_structured
 from encoding      import build_index
 from similarity    import find_similar_ids as find_similar_from_description
-from prompts       import solve_competition_with_code, followup_prompt
-
+from llm_coding       import solve_competition_with_code, followup_prompt
+from comps import test
 
 # Monkey-patches
 mutils.check_torch_load_is_safe = lambda *args, **kwargs: None
@@ -50,7 +47,7 @@ if __name__ == "__main__":
 
     if cmd == "cb":
         start_slug = sys.argv[2] if len(sys.argv) >= 3 else None
-        df_struct = collect_and_structured(num_competitions=147,max_per_keyword=5, start=start_slug)
+        df_struct = collect_and_structured(max_per_keyword=5, start=start_slug)
         print(f"[OK] Collected and structured {len(df_struct)} notebooks.")
         if not Path("notebooks_structured.csv").exists():
             print("[ERROR] Please run `collect_and_structured` first.")
@@ -76,26 +73,21 @@ if __name__ == "__main__":
         sys.exit(0)
 
     elif cmd == "code":
-        if len(sys.argv) < 4:
-            print("Usage: python rag.py code <slug> <class_col> [top_k] [Keras-Tuner True:1|False:0]")
-            sys.exit(1)
-        slug      = sys.argv[2]
-        class_col = sys.argv[3]
-        top_k     = int(sys.argv[3]) if len(sys.argv)>3 else 5
-        kt = int(sys.argv[4]) if len(sys.argv) > 4 else 0
+        top_k     = 5
+        kt = 0
 
-        # call the new solver
-        notebook_code = solve_competition_with_code(
-            slug          = slug,
-            structured_csv= "notebooks_structured.csv",
-            top_k         = top_k,
-            kt            = kt, 
+        for slug in test: 
+            notebook_code = solve_competition_with_code(
+                slug = slug,
+                structured_csv= "notebooks_structured.csv",
+                top_k         = top_k,
+                kt            = kt, 
 
-        )
-        # write out the notebook
-        out_path = Path(f"{slug}_solution.py")
-        out_path.write_text(notebook_code, encoding="utf-8")
-        print(f"[OK] Solution code written to {out_path}")
+            )
+            # write out the notebook
+            out_path = Path(f"test/{slug}/{slug}_solution.py")
+            out_path.write_text(notebook_code, encoding="utf-8")
+            print(f"[OK] Solution code written to {out_path}")
 
     elif cmd == "followup":
         # Usage: python rag.py followup <solution_file.py>
