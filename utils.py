@@ -1,4 +1,3 @@
-
 import os
 import re
 import time
@@ -6,6 +5,8 @@ import tempfile
 import zipfile
 import csv
 from pathlib import Path
+import py7zr
+import gzip
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -17,8 +18,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from config import ENCODER, MAX_NOTEBOOK_TOKENS, kaggle_api
 
-from typing import Any, Dict, List
-from typing import List, Tuple, Dict
+from typing import Any, List, Tuple, Dict, Union,Optional
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -47,39 +47,50 @@ def ensure_folder(path: Path):
     path.mkdir(parents=True, exist_ok=True)
     return path
 
-
-def download_csv(path: str, struct):
-     # ───── Download train.csv ─────
-    slug = struct["slug"]
-    comp_folder = Path("solutions") / slug
-    train_path = comp_folder / "train.csv"
-
-    comp_folder.mkdir(parents=True, exist_ok=True)
-
-    # download if missing
-    if not train_path.exists():
-        try:
-            kaggle_api.competition_download_file(slug, "train.csv", path=str(comp_folder))
-        except Exception as e:
-            print(f"[WARN] Couldn't download train.csv for {slug}: {e}")
-            return
-
-    # profile (even if it was just downloaded)
-    profile = describe_schema(str(train_path), struct["target_column"])
-    if "dataset_schema" in profile:
-        struct["dataset_schema"] = profile["dataset_schema"]
-        struct["target_summary"] = profile["target_summary"]
-    else:
-        print(f"[WARN] Schema profiling failed for {slug}: {profile.get('error')}")
-
-
-
-
 def truncate_to_token_limit(text: str, max_tokens: int = MAX_NOTEBOOK_TOKENS) -> str:
     tokens = ENCODER.encode(text)
     if len(tokens) <= max_tokens:
         return text
     return ENCODER.decode(tokens[:max_tokens])
+
+
+
+
+def parse_competition_data_tab(html: str) -> dict:
+    soup = BeautifulSoup(html, "html.parser")
+    info = {}
+
+    # 1) Dataset Description block
+    dd_h2 = soup.find("h2", string=re.compile(r"Dataset Description", re.IGNORECASE))
+    if dd_h2:
+        # the <div class="sc-lhcVAQ fqIFbB"> immediately follows
+        container = dd_h2.find_next("div", class_="sc-lhcVAQ")
+        if container:
+            info["dataset_description"] = container.get_text("\n", strip=True)
+
+    # 2) summary stats: Files / Size / Type / License
+    for label in ("Files", "Size", "Type", "License"):
+        h2 = soup.find("h2", string=label)
+        if h2:
+            p = h2.find_next_sibling("p")
+            info[label.lower()] = p.get_text(strip=True) if p else ""
+
+    # 3) Data Explorer → list of filenames
+    de_h2 = soup.find("h2", string=re.compile(r"Data Explorer", re.IGNORECASE))
+    files = []
+    if de_h2:
+        ul = de_h2.find_next("ul")
+        if ul:
+            for li in ul.find_all("li"):
+                # the filename lives in the <p> inside each <li>
+                p = li.find("p")
+                if p:
+                    files.append(p.get_text(strip=True))
+
+    return {
+        "dataset_metadata": info, 
+        "files_list": files
+    }
 
 
 def parse_competition_metadata(html: str) -> dict:
@@ -131,7 +142,7 @@ def parse_competition_metadata(html: str) -> dict:
 
     return {
         "title": title,
-        "problem_description": full_desc
+        "competition_metadata": full_desc, 
     }
 
 
@@ -139,121 +150,282 @@ def parse_competition_metadata(html: str) -> dict:
 """
     Describe dataset 
 """
+
+def extract_tabular(file_path: str) -> Tuple[Optional[tempfile.TemporaryDirectory], str]:
+    """
+    If file_path is an archive (.zip, .csv.zip, .tsv.zip, .7z, .gz),
+    extract the first .csv or .tsv inside a temp dir and return its path.
+    Otherwise return file_path unchanged.
+    """
+    # read magic bytes
+    with open(file_path, 'rb') as f:
+        magic = f.read(6)
+
+
+    # ZIP archives (.zip, .csv.zip, .tsv.zip, .zip)
+    if magic[:4] == b'PK\x03\x04' or file_path.lower().endswith(('.zip', '.csv.zip', '.tsv.zip')):
+        z = zipfile.ZipFile(file_path, 'r')
+        members = [n for n in z.namelist() if n.lower().endswith(('.csv', '.tsv'))]
+        if not members:
+            raise RuntimeError(f"No .csv or .tsv found in ZIP {file_path}")
+        member = members[0]
+        temp_dir = tempfile.TemporaryDirectory()
+        z.extract(member, temp_dir.name)
+        return temp_dir, os.path.join(temp_dir.name, member)
+    
+    # 7z archives (.7z)
+    if magic == b'7z\xBC\xAF\'\x1C' or file_path.lower().endswith('.7z'):
+        temp_dir = tempfile.TemporaryDirectory()
+        with py7zr.SevenZipFile(file_path, 'r') as z:
+            members = [n for n in z.getnames() if n.lower().endswith(('.csv', '.tsv'))]
+            if not members:
+                raise RuntimeError(f"No .csv or .tsv found in 7z {file_path}")
+            member = members[0]
+            z.extract(targets=[member], path=temp_dir.name)
+        return temp_dir, os.path.join(temp_dir.name, member)
+    
+    # gzip (.gz)
+    if magic[:2] == b'\x1f\x8b':
+        temp_dir = tempfile.TemporaryDirectory()
+        base = os.path.basename(file_path)[:-3]
+        out_path = os.path.join(temp_dir.name, base)
+        with gzip.open(file_path, 'rb') as src, open(out_path, 'wb') as dst:
+            dst.write(src.read())
+        return temp_dir, out_path
+
+
+    # not an archive: assume plain .csv or .tsv
+    return None, file_path
+
+
+
+def compact_profile_for_llm(
+    profile: Dict[str,Any],
+    max_features: int = 50,
+    max_classes: int  = 50
+) -> Dict[str,Any]:
+    """
+    Collapse long schema runs (as you already do) *and* collapse/
+    truncate target_summary so that classes like "123-F_1_2" are
+    grouped by feature (F_1) into ranges, with count.  Any leftover
+    non-matching classes fall back to top-K + "... more".
+    """
+    # 1) collapse schema exactly as before
+    schema = profile["dataset_schema"]
+    if len(schema) <= max_features:
+        collapsed_schema = schema
+    else:
+        # your run‐detection & collapse logic here...
+        # (for brevity, imagine you’ve copied in your existing code)
+        collapsed_schema = _collapse_schema_runs(schema)
+
+    # 2) collapse target_summary
+    ts = profile["target_summary"]
+    truncated_ts: Dict[str,Any] = {}
+    # regex to pull out "<row>-<feature>_<idx>"
+    cls_pat = re.compile(r"^\d+-(F_\d+)_(\d+)$")
+
+    for tgt_col, dist in ts.items():
+        if isinstance(dist, dict) and all(isinstance(v, (int,float)) for v in dist.values()):
+            # group by feature prefix
+            groups: Dict[str, List[int]] = {}
+            others: Dict[str, float] = {}
+            for cls, pct in dist.items():
+                m = cls_pat.match(cls)
+                if m:
+                    feat, idx = m.group(1), int(m.group(2))
+                    groups.setdefault(feat, []).append(idx)
+                else:
+                    others[cls] = pct
+
+            collapsed_classes: Dict[str, Any] = {}
+            # first collapse all the feature‐based groups
+            for feat, idxs in groups.items():
+                lo, hi = min(idxs), max(idxs)
+                n = len(idxs)
+                collapsed_classes[f"{feat}_{lo}–{feat}_{hi} ({n} classes)"] = None
+
+            # then handle any “others” with top‐K + "... more"
+            if others:
+                # sort descending
+                items = sorted(others.items(), key=lambda x: x[1], reverse=True)
+                for cls, pct in items[:max_classes]:
+                    collapsed_classes[cls] = pct
+                rem = len(items) - max_classes
+                if rem > 0:
+                    collapsed_classes[f"... +{rem} more"] = None
+
+            truncated_ts[tgt_col] = collapsed_classes
+
+        else:
+            # numeric summary, leave as is
+            truncated_ts[tgt_col] = dist
+
+    return {
+        "shape":          profile["shape"],
+        "dataset_schema": collapsed_schema,
+        "target_summary": truncated_ts
+    }
+
+
+# Helper: your existing run collapsing logic, e.g.:
+
+def _collapse_schema_runs(schema: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
+    pat = re.compile(r"^(.*?)(\d+)$")
+    runs, current = [], [schema[0]]
+    for feat in schema[1:]:
+        prev = current[-1]
+        m1, m2 = pat.match(prev["name"]), pat.match(feat["name"])
+        if (
+            feat["type"] == prev["type"]
+            and m1 and m2
+            and m1.group(1) == m2.group(1)
+            and int(m2.group(2)) == int(m1.group(2)) + 1
+        ):
+            current.append(feat)
+        else:
+            runs.append(current)
+            current = [feat]
+    runs.append(current)
+
+    collapsed = []
+    for run in runs:
+        t = run[0]["type"]
+        if len(run) == 1:
+            f = run[0]
+            collapsed.append({
+                "columns":     f["name"],
+                "type":        t,
+                "missing_pct": f.get("missing_pct"),
+                "is_target":   f.get("is_target", False)
+            })
+        else:
+            start, end = run[0]["name"], run[-1]["name"]
+            missing_avg = round(sum(f.get("missing_pct",0) for f in run) / len(run), 2)
+            collapsed.append({
+                "columns":     f"{start}–{end} ({len(run)} cols)",
+                "type":        t,
+                "missing_pct": missing_avg,
+                "is_target":   any(f.get("is_target", False) for f in run)
+            })
+    return collapsed
+
+
 def describe_schema(
-    url: str,
-    class_col: str
+    source_path: str,
+    target_column: Union[str, List[str]]
 ) -> Dict[str, Any]:
     """
-    Load a (possibly zipped) CSV/TSV from `url`, auto-sniff delimiter,
-    use the python engine + skip malformed lines, then build your schema.
+    1) Unpack archives or compressed files if needed
+    2) Auto-detect delimiter (comma, tab, semicolon), fallback to tab for .tsv
+    3) Load with pandas (python engine, skip bad lines)
+    4) Build a schema and target summary for one or more columns
     """
-    
-    # 0) If this is actually a ZIP archive, unzip it
-    
-    # read magic header
-    with open(url, "rb") as f:
-        magic = f.read(4)
-    if magic == b'PK\x03\x04':
-        tmpdir = tempfile.mkdtemp()
-        with zipfile.ZipFile(url, 'r') as z:
-            # find the first CSV inside
-            for name in z.namelist():
-                if name.lower().endswith('.csv'):
-                    z.extract(name, tmpdir)
-                    url = os.path.join(tmpdir, name)
-                    break
-        # now `url` points at the extracted CSV file
+    # 0) normalize target list
+    if isinstance(target_column, str):
+        targets = [target_column]
+    else:
+        targets = list(target_column)
 
-    
-    # 1) Find delimiter
-    
+    # 1) unpack if needed
+    temp_ctx, csv_path = extract_tabular(source_path)
+
+    # 2) sniff delimiter
     try:
-        with open(url, 'rb') as f:
+        # sniff delimiter
+        with open(csv_path, 'rb') as f:
             sample = f.read(2048)
         try:
             text = sample.decode('utf-8')
         except UnicodeDecodeError:
             text = sample.decode('latin1', errors='ignore')
-        dialect = csv.Sniffer().sniff(text, delimiters=[',','\t',';'])
-        sep = dialect.delimiter
-    except Exception:
-        sep = ','
-
-    
-    # 2) Load with python engine, no quoting, skip broken lines
-    
-    df = None
-    last_err = None
-    for enc in ("utf-8","utf-8-sig","latin1","ISO-8859-1"):
         try:
-            df = pd.read_csv(
-                url,
-                sep=sep,
-                encoding=enc,
-                engine='python',
-                quoting=csv.QUOTE_NONE,
-                on_bad_lines='skip'
+            sep = csv.Sniffer().sniff(text, delimiters=[',','\t',';']).delimiter
+        except csv.Error:
+            sep = '\t' if csv_path.lower().endswith('.tsv') else ','
+
+        # load
+        df = None
+        for enc in ("utf-8","utf-8-sig","latin1","ISO-8859-1"):
+            try:
+                df = pd.read_csv(
+                    csv_path, sep=sep, encoding=enc,
+                    engine='python', quoting=csv.QUOTE_NONE,
+                    on_bad_lines='skip'
+                )
+                break
+            except Exception:
+                continue
+        if df is None:
+            raise RuntimeError(f"Failed to read {csv_path}")
+
+        # shape & missing
+        n_rows, n_cols = df.shape
+        missing = df.isnull().sum()
+
+        # features
+        features: List[Dict[str, Any]] = []
+        for col in df.columns:
+            dtype = df[col].dtype
+            if pd.api.types.is_integer_dtype(dtype):
+                t = "int"
+            elif pd.api.types.is_float_dtype(dtype):
+                t = "float"
+            elif pd.api.types.is_datetime64_any_dtype(dtype):
+                t = "datetime"
+            elif pd.api.types.is_bool_dtype(dtype):
+                t = "boolean"
+            else:
+                t = "string"
+            miss_pct = round(float(missing[col]) / n_rows * 100, 2)
+            features.append({
+                "name": col,
+                "type": t,
+                "missing_pct": miss_pct,
+                "is_target": col in targets
+            })
+
+        # target summary
+        target_summary: Dict[str, Any] = {}
+        for tgt in targets:
+            if tgt not in df.columns:
+                target_summary[tgt] = {"error": "not found"}
+                continue
+            ser = df[tgt].dropna()
+            if pd.api.types.is_numeric_dtype(df[tgt].dtype):
+                stats = ser.describe()
+                target_summary[tgt] = {
+                    "min": float(stats["min"]),
+                    "median": float(stats["50%"]),
+                    "max": float(stats["max"])
+                }
+            else:
+                vc = (ser.value_counts(normalize=True) * 100).round(2)
+                target_summary[tgt] = {str(k): float(v) for k, v in vc.items()}
+
+        return {
+            "shape": {"rows": n_rows, "cols": n_cols},
+            "dataset_schema": features,
+            "target_summary": target_summary
+        }
+
+    finally:
+        if temp_ctx is not None:
+            temp_ctx.cleanup()
+
+def download_train_file(slug: str, path, files_list: List[str]) -> List[Path]:
+    comp_folder = Path(path) / slug
+    comp_folder.mkdir(parents=True, exist_ok=True)
+
+    local_paths = []
+    for fname in files_list:
+        # skip if we already have it
+        dest = comp_folder / fname
+        if not dest.exists():
+            kaggle_api.competition_download_file(
+                slug,
+                fname,
+                path=str(comp_folder)
             )
-            break
-        except Exception as e:
-            last_err = e
-    if df is None:
-        return {"error": f"Failed to load file (sep={sep!r}; tried encodings): {last_err}"}
-
-    
-    # 3) Build the schema
-    
-    n_rows, n_cols = df.shape
-    cols = df.columns.tolist()
-
-    types: Dict[str,str] = {}
-    for c in cols:
-        dt = df[c].dtype
-        if pd.api.types.is_numeric_dtype(dt):
-            types[c] = "numeric"
-        elif pd.api.types.is_datetime64_any_dtype(dt):
-            types[c] = "datetime"
-        else:
-            nunique = df[c].nunique(dropna=True)
-            types[c] = "categorical" if nunique < n_rows * 0.05 else "text"
-
-    schema: List[Dict[str, Any]] = []
-    for c in cols:
-        entry = {"name": c, "type": types[c]}
-        ser = df[c].dropna()
-        if types[c] == "numeric":
-            entry.update({
-                "min": float(ser.min()),
-                "median": float(ser.median()),
-                "max": float(ser.max())
-            })
-        elif types[c] == "categorical":
-            vc = ser.value_counts()
-            entry.update({
-                "cardinality": int(vc.size),
-                "top": vc.index[:3].astype(str).tolist()
-            })
-        schema.append(entry)
-
-    target_summary: Dict[str, Any] = {}
-    if class_col in df.columns:
-        ser = df[class_col].dropna()
-        if types[class_col] == "numeric":
-            stats = ser.describe()
-            target_summary = {
-                "min": float(stats["min"]),
-                "median": float(stats["50%"]),
-                "max": float(stats["max"])
-            }
-        else:
-            pct = (ser.value_counts(normalize=True) * 100).round(2)
-            target_summary = {str(k): float(v) for k,v in pct.items()}
-
-    return {
-        "source": url,
-        "shape": {"rows": n_rows, "cols": n_cols},
-        "dataset_schema": schema,
-        "target_summary": target_summary
-    }
-
-
+        local_paths.append(dest)
+    return local_paths

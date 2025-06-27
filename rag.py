@@ -1,6 +1,3 @@
-#By Illya Gordyy and ChatGPT
-
-
 import os
 import sys
 
@@ -14,8 +11,8 @@ from transformers.utils import import_utils
 from collection    import collect_and_structured
 from encoding      import build_index
 from similarity    import find_similar_ids as find_similar_from_description
-from prompts       import solve_competition_with_code, followup_prompt
-
+from llm_coding    import solve_competition_keras,solve_competition_tuner, followup_prompt
+from comps         import test
 
 # Monkey-patches
 mutils.check_torch_load_is_safe = lambda *args, **kwargs: None
@@ -31,8 +28,7 @@ logging.set_verbosity_error()
 def print_usage():
     print("""
         Usage:
-        python rag.py collect_and_structured
-        python rag.py build_index
+        python rag.py cb            - Collect and build 
         python rag.py find_similar
         python rag.py find_similar_desc <description.txt> [notebooks|comps] [top_k]
 
@@ -49,22 +45,20 @@ if __name__ == "__main__":
 
     cmd = sys.argv[1].lower()
 
-    if cmd == "collect_and_structured":
-        df_struct = collect_and_structured(max_per_keyword=5)
+    if cmd == "cb":
+        start_slug = sys.argv[2] if len(sys.argv) >= 3 else None
+        df_struct = collect_and_structured(max_per_keyword=5, start=start_slug)
         print(f"[OK] Collected and structured {len(df_struct)} notebooks.")
-        sys.exit(0)
-
-    elif cmd == "build_index":
         if not Path("notebooks_structured.csv").exists():
             print("[ERROR] Please run `collect_and_structured` first.")
             sys.exit(1)
         df_struct = pd.read_csv("notebooks_structured.csv")
         build_index(df_struct)
         sys.exit(0)
-    elif cmd == "find_similar_desc":
-        # Usage: python3 rag.py find_similar_desc <desc_and_meta.json> <top_k> [<exclude_competition>]
+    elif cmd == "fd":
+        # Usage: python3 rag.py fd <desc_and_meta.json> <top_k> [<exclude_competition>]
         if len(sys.argv) < 4:
-            print("Usage: python3 rag.py find_similar_desc <desc_meta.json> <top_k> [<exclude_competition>]")
+            print("Usage: python3 rag.py fd <desc_meta.json> <top_k> [<exclude_competition>]")
             sys.exit(1)
 
         desc_json    = sys.argv[2]
@@ -78,28 +72,31 @@ if __name__ == "__main__":
         )
         sys.exit(0)
 
-    elif cmd == "auto_solve_code":
-        if len(sys.argv) < 4:
-            print("Usage: python rag.py auto_solve_code <slug> <class_col> [top_k] [Keras-Tuner True:1|False:0]")
-            sys.exit(1)
-        slug      = sys.argv[2]
-        class_col = sys.argv[3]
-        top_k     = int(sys.argv[4]) if len(sys.argv)>4 else 5
-        kt = int(sys.argv[5]) if len(sys.argv) > 5 else 0
+    elif cmd == "code":
+        top_k     = 5
+        kt = 1
+        if kt == 0: 
+            for slug in test: 
+                notebook_code = solve_competition_keras(
+                    slug = slug,
+                    structured_csv= "notebooks_structured.csv",
+                    top_k         = top_k,
+                    kt            = kt, 
 
-        # call the new solver
-        notebook_code = solve_competition_with_code(
-            class_col     = class_col,
-            slug          = slug,
-            structured_csv= "notebooks_structured.csv",
-            top_k         = top_k,
-            kt            = kt, 
-
-        )
-        # write out the notebook
-        out_path = Path(f"{slug}_solution.py")
-        out_path.write_text(notebook_code, encoding="utf-8")
-        print(f"[OK] Solution code written to {out_path}")
+                )
+                # write out the notebook
+                out_path = Path(f"test/{slug}/{slug}_solution.py")
+                out_path.write_text(notebook_code, encoding="utf-8")
+                print(f"[OK] Solution code written to {out_path}")
+        else: 
+            for slug in test: 
+                notebook_code = solve_competition_tuner(
+                    slug = slug
+                )
+                # write out the notebook
+                out_path = Path(f"test/{slug}/{slug}_kt_solution.py")
+                out_path.write_text(notebook_code, encoding="utf-8")
+                print(f"[OK] Solution code written to {out_path}")
 
     elif cmd == "followup":
         # Usage: python rag.py followup <solution_file.py>
