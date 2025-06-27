@@ -11,8 +11,8 @@ from transformers.utils import import_utils
 from collection    import collect_and_structured
 from encoding      import build_index
 from similarity    import find_similar_ids as find_similar_from_description
-from llm_coding       import solve_competition_with_code, followup_prompt
-from comps import test
+from llm_coding    import solve_competition_keras,solve_competition_tuner, followup_prompt
+from comps         import test
 
 # Monkey-patches
 mutils.check_torch_load_is_safe = lambda *args, **kwargs: None
@@ -74,20 +74,29 @@ if __name__ == "__main__":
 
     elif cmd == "code":
         top_k     = 5
-        kt = 0
+        kt = 1
+        if kt == 0: 
+            for slug in test: 
+                notebook_code = solve_competition_keras(
+                    slug = slug,
+                    structured_csv= "notebooks_structured.csv",
+                    top_k         = top_k,
+                    kt            = kt, 
 
-        for slug in test: 
-            notebook_code = solve_competition_with_code(
-                slug = slug,
-                structured_csv= "notebooks_structured.csv",
-                top_k         = top_k,
-                kt            = kt, 
-
-            )
-            # write out the notebook
-            out_path = Path(f"test/{slug}/{slug}_solution.py")
-            out_path.write_text(notebook_code, encoding="utf-8")
-            print(f"[OK] Solution code written to {out_path}")
+                )
+                # write out the notebook
+                out_path = Path(f"test/{slug}/{slug}_solution.py")
+                out_path.write_text(notebook_code, encoding="utf-8")
+                print(f"[OK] Solution code written to {out_path}")
+        else: 
+            for slug in test: 
+                notebook_code = solve_competition_tuner(
+                    slug = slug
+                )
+                # write out the notebook
+                out_path = Path(f"test/{slug}/{slug}_kt_solution.py")
+                out_path.write_text(notebook_code, encoding="utf-8")
+                print(f"[OK] Solution code written to {out_path}")
 
     elif cmd == "followup":
         # Usage: python rag.py followup <solution_file.py>

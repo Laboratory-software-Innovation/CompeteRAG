@@ -125,9 +125,9 @@ ask_structured_schema = {
 }
 
 
-# llm_coding ----> solve_competition_with_code
-generate_solution_schema = {
-        "name": "generate_solution_schema",   
+# llm_coding ----> solve_competition_keras
+generate_keras_schema = {
+        "name": "generate_keras_schema",   
         "description": (
             "Given:\n"
             "  • `competition_slug`: the Kaggle competition slug,\n"
@@ -141,7 +141,6 @@ generate_solution_schema = {
             "  • `training_files`: list of one or more CSV/TSV files to read,\n"
             "  • `all_files`: list of all files included in the competition, decide whether there are testing files and whether you need to split the training dataset,\n"        
             "  • `examples`: top-K example kernels for inspiration,\n"
-            "  • `use_kt`: boolean flag.\n\n"
             "Emit ONLY a single JSON object with exactly one field:\n"
             "  • ***`notebook_code`: a string containing **only** runnable Python code wrapped in `<Code>…</Code>`.\n\n"
             "The generated code must implement:\n"
@@ -159,7 +158,6 @@ generate_solution_schema = {
             "   - `tensorflow` (or `torch`),\n"
             "   - `tensorflow.keras.callbacks.EarlyStopping,ModelCheckpoint` (or torch equivalents),\n"
             "   - `json`, `time`.\n"
-            "   If `use_kt` is true, also import `keras_tuner as kt` and any additional tuner helpers.\n"
             "3. **Data Loading**:\n"
             "   - Read every file in `training_files`.\n"
             "   - **Infer `target_cols` programmatically**: if you passed a common prefix (e.g. `start_`) or know the count `N`, generate your list in code instead of hard-coding. For example:\n"
@@ -236,7 +234,6 @@ generate_solution_schema = {
             "# **Write** submission file\n"
             "submission.to_csv('submission_result.csv', index=False)\n"
             "         ```   \n"
-            "13. **(optional)** If `use_kt` is true, include a complete Keras-Tuner snippet: `HyperModel` subclass, `Hyperband` (or `BayesianOptimization`) setup, `tuner.search()`, and final retraining.\n"
             "No other imports, prose, markdown or keys—just the JSON with a single `notebook_code` field.\n"
         ),
         "parameters": {
@@ -250,7 +247,7 @@ generate_solution_schema = {
                     "type": "string",
                     "description": "Dense competition description giving the core goal."
                 },
-                "competition_type": {
+                "competition_problem_type": {
                     "type": "string",
                     "description": "Classification|Regression"
                 },
@@ -305,10 +302,6 @@ generate_solution_schema = {
                         "required":["kernel_ref","score","preprocessing_steps","model_layers_code"]
                     }
                 },
-                "use_kt": {
-                    "type": "boolean",
-                    "description": "Whether to include the Keras-Tuner snippet."
-                },
                 "notebook_code": {
                     "type": "string",
                     "description": "***The complete runnable Python code wrapped in <Code>…</Code>."
@@ -326,11 +319,69 @@ generate_solution_schema = {
                 "training_files",
                 "all_files",
                 "examples",
-                "use_kt",
                 "notebook_code"
             ]
         }
     }
+
+
+
+generate_tuner_schema = {
+    "name": "generate_tuner_schema",
+    "description": (
+        "Given:\n"
+        "   `competition_slug`: the Kaggle competition slug,\n"
+        "   `competition_problem_description`, `competition_problem_type`, `competition_problem_subtype`,\n"
+        "    `dataset_metadata`, `data_profiles`, `training_files`, `all_files` (from comp_struct),\n"
+        "   `existing_solution_code`: the text of the working Keras solution,\n"
+        "   `hyperparameter_bank`: a mapping of template search-spaces (from papers) keyed by scenario tags,\n"
+        "Emit ONLY a single JSON object with exactly one field:\n"
+        "   `tuner_code`: a string containing **only** the complete Keras-Tuner runnable Python code wrapped in `<Code>…</Code>`\n"
+        "    (including imports, HyperModel subclass, tuner setup, search, and final retrain)\n"
+        "    Keep the structure the same as the original Keras code, including the training timing, saving the result into a submission file "
+        "    **Write** submission file\n"
+        "    submission.to_csv('submission_result.csv', index=False)\n"
+        "No other keys, no prose, no markdown fences—just valid JSON."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "competition_slug":              {"type": "string"},
+            "competition_problem_description":{"type": "string"},
+            "competition_problem_type":               {"type": "string"},
+            "competition_problem_subtype":    {"type": "string"},
+            "dataset_metadata":               {"type": "string"},
+            "data_profiles":                  {"type": "object"},
+            "training_files": {
+                "type": "array",
+                "items": {"type": "string"}
+            },
+            "all_files": {
+                "type": "array",
+                "items": {"type": "string"}
+            },
+            "existing_solution_code":         {"type": "string"},
+            "hyperparameter_bank":            {"type": "object"},
+
+            "tuner_code": {
+                "type": "string",
+                "description": "***The complete Keras-Tuner runnable Python code wrapped in <Code>…</Code>."
+            }
+        },
+        "required": [
+            "competition_slug",
+            "competition_problem_description",
+            "competition_problem_type",
+            "competition_problem_subtype",
+            "dataset_metadata",
+            "data_profiles",
+            "training_files",
+            "existing_solution_code",
+            "hyperparameter_bank",
+            "tuner_code"
+        ]
+    }
+}
 
 
 # llm_coding ---> structure_and_label_competition
@@ -339,7 +390,7 @@ structure_and_label_competition_schema = {
     "description": (
         "Given raw Kaggle competition metadata, dataset metadata and a list of files, "
         "return exactly the following fields as JSON:\n"
-        "  - competition_type (\"regression\" or \"classification\")\n"
+        "  - competition_problem_type (\"regression\" or \"classification\")\n"
         "  - competition_problem_subtype (lower-case, hyphenated phrase describing the subtype)\n"
         "  - competition_problem_description (dense, non-repetitive description of the goal)\n"
         "  - dataset_metadata (plain-English paragraph rewrite of the original)\n"
@@ -354,7 +405,7 @@ structure_and_label_competition_schema = {
     "parameters": {
         "type": "object",
         "properties": {
-            "competition_type": {
+            "competition_problem_type": {
                 "type": "string",
                 "description": "“regression” or “classification”"
             },
@@ -401,7 +452,7 @@ structure_and_label_competition_schema = {
             }
         },
         "required": [
-            "competition_type",
+            "competition_problem_type",
             "competition_problem_subtype",
             "competition_problem_description",
             "dataset_metadata",
@@ -414,3 +465,5 @@ structure_and_label_competition_schema = {
         ]
     }
 }
+
+

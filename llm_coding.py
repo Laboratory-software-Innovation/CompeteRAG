@@ -11,8 +11,9 @@ from config import OPENAI_MODEL,kaggle_api
 from selenium_helper import init_selenium_driver
 from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab, describe_schema, compact_profile_for_llm
 from similarity import find_similar_ids
-from prompts import generate_solution_schema,structure_and_label_competition_schema
+from prompts import generate_keras_schema,structure_and_label_competition_schema,generate_tuner_schema
 from config import kaggle_api
+from tuner_bank import HYPERPARAMETER_BANK
 
 def normalize_kernel_ref(ref: str) -> str:
     """
@@ -23,9 +24,9 @@ def normalize_kernel_ref(ref: str) -> str:
     """
     if ref.startswith("http"):
         # strip protocol+domain, drop any query-string
-        ref = ref.split("://", 1)[-1]               # "www.kaggle.com/username/..."
-        ref = ref.split("www.kaggle.com/", 1)[-1]   # "username/..."
-        ref = ref.split("?", 1)[0]                 # drop any "?..."
+        ref = ref.split("://", 1)[-1]              
+        ref = ref.split("www.kaggle.com/", 1)[-1]   
+        ref = ref.split("?", 1)[0]                 
     return ref
 
 
@@ -62,7 +63,6 @@ def structure_and_label_competition(comp_meta: dict) -> dict:
         function_call={"name": "structure_and_label_competition_schema"}
     )
 
-    # 3) parse the function call
     message = response.choices[0].message
     args = json.loads(message.function_call.arguments)
 
@@ -91,10 +91,10 @@ def list_files(slug : str) -> List[str]:
 
 
 """
-    Initial prompt for Keras and Keras-Tuner  
+    Initial prompt for Keras  
 """
 
-def solve_competition_with_code(
+def solve_competition_keras(
     slug:            str, 
     structured_csv:  str = "notebooks_structured.csv",
     top_k:           int = 5,
@@ -140,26 +140,21 @@ def solve_competition_with_code(
         target_column=comp_struct["target_column"]
         )
 
-        # 2) collapse both the schema *and* the target_summary if they’re too big
+        # 2) collapse both the schema and the target_summary if they are too big
         compacted = compact_profile_for_llm(
             prof,
             max_features=50,    # collapse runs if > n features
             max_classes=50       # keep top n classes per target
         )
 
-        # 3) stash under the filename
         all_schemas[p.name] = compacted
 
 
-    # now we have a dict mapping each filename → its profile
     comp_struct["data_profiles"] = all_schemas
 
-
-    
     desc_path = Path(f"{comp_folder}/{slug}_desc.json")
     desc_path.write_text(json.dumps(comp_struct, ensure_ascii=False, indent=2), encoding="utf-8")  
 
-    # load & normalize the structured CSV
     df = pd.read_csv(structured_csv)
     df["kernel_ref_norm"] = df["kernel_ref"].apply(normalize_kernel_ref)
 
@@ -177,12 +172,11 @@ def solve_competition_with_code(
         layer_code = row["notebook_model_layers_code"]
         examples.append((rank, kr, score, prep_steps, layer_code))
 
-    
 
     payload = {
         "competition_slug":                 slug,
         "competition_problem_description":  comp_struct["competition_problem_description"],
-        "competition_problem_type":         comp_struct["competition_type"],
+        "competition_problem_type":         comp_struct["competition_problem_type"],
         "competition_problem_subtype":      comp_struct["competition_problem_subtype"],
         "dataset_metadata":                 comp_struct["dataset_metadata"],
         "data_profiles":                    all_schemas,
@@ -200,7 +194,6 @@ def solve_competition_with_code(
             }
             for (rank, kr, sc, prep, layers) in examples
         ],
-        "use_kt":                           bool(kt)
     }
 
     system_msg = {
@@ -221,8 +214,8 @@ def solve_competition_with_code(
         model=OPENAI_MODEL,
         temperature=0.0,
         messages=[system_msg, user_msg],
-        functions=[generate_solution_schema],
-        function_call={"name": "generate_solution_schema"}
+        functions=[generate_keras_schema],
+        function_call={"name": "generate_keras_schema"}
     )
 
     msg    = response.choices[0].message
@@ -234,23 +227,67 @@ def solve_competition_with_code(
     return code 
 
 
+def solve_competition_tuner(slug: str) -> str:
+    base = Path(f"test/{slug}")
+
+    comp_struct = json.loads((base / f"{slug}_desc.json").read_text(encoding="utf-8"))
+    # load the existing keras solution
+    existing_solution_code = (base / f"{slug}_solution.py").read_text(encoding="utf-8")
+
+    payload = {
+        "competition_slug":               slug,
+        "competition_problem_description": comp_struct["competition_problem_description"],
+        "competition_problem_type":                comp_struct["competition_problem_type"],
+        "competition_problem_subtype":     comp_struct["competition_problem_subtype"],
+        "dataset_metadata":                comp_struct["dataset_metadata"],
+        "data_profiles":                   comp_struct["data_profiles"],
+        "training_files":                  comp_struct["training_files"],
+        "all_files":                       comp_struct["all_files"],
+        "existing_solution_code":          existing_solution_code,
+        "hyperparameter_bank":             HYPERPARAMETER_BANK
+    }
+
+    system_msg = {
+        "role": "system",
+        "content": (
+            "You are a world-class deep learning engineer.  "
+            "Use the `hyperparameter_bank` to pick or combine the most appropriate hyperparameters for keras tuner"
+            "for this competition’s data and emit ONLY valid JSON via the function schema."
+        )
+    }
+    user_msg = {
+        "role": "user",
+        "content": json.dumps(payload, ensure_ascii=False)
+    }
+
+    response = openai.chat.completions.create(
+        model=OPENAI_MODEL,
+        temperature=0.0,
+        messages=[system_msg, user_msg],
+        functions=[generate_tuner_schema],
+        function_call={"name": "generate_tuner_schema"}
+    )
+
+    msg       = response.choices[0].message
+    args      = json.loads(msg.function_call.arguments)
+    tuner_code = args["tuner_code"]
+
+    if tuner_code.startswith("<Code>") and tuner_code.endswith("</Code>"):
+        tuner_code = tuner_code[len("<Code>"):-len("</Code>")].strip()
+
+    return tuner_code
+
 
 """
     Follow-up prompt
 """
 
 def followup_prompt(
-    slug: str
+    slug: str,
+    kt: bool
 ) -> str:
-    """
-    Reads a solution file which contains marked sections:
-      <Code> ... </Code>
-      <Error> ... </Error>
-    Sends these to the LLM in a follow-up prompt asking for corrected code.
-    
-    Returns the corrected code (without markers).
-    """
-    solution_path = str(str(slug) + "_solution.py")
+
+    solution_path = f"{slug}{'_kt' if kt else ''}_solution.py"
 
     path = Path(solution_path)
     if not path.exists():
