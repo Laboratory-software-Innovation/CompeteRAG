@@ -3,31 +3,32 @@ pandas>=1.5
 numpy>=1.24
 
 # Machine learning & embeddings
-torch>=2.0
-transformers>=4.30
+torch
+transformers
 sentence-transformers>=2.2
-faiss-cpu>=1.7   # or faiss-gpu if you have GPU support
-scikit-learn>=1.2
+faiss-cpu   # or faiss-gpu if you have GPU support
+scikit-learn
+tf-keras
 
 # Hugging Face Hub & Inference
-huggingface-hub>=0.14
+huggingface-hub
 tiktoken
 
 # Kaggle API
-kaggle>=1.5
+kaggle
 
 # OpenAI
-openai>=0.27
+openai
 
 # Web scraping & browser automation
-beautifulsoup4>=4.12
-selenium>=4.8
-webdriver-manager>=3.8
+beautifulsoup4
+selenium
+webdriver-manager
 
 # Utilities
-bs4>=0.0.1
+bs4
 python-dotenv
-py7zr>=0.17
+py7zr
 nbformat
 nbconvert
 
