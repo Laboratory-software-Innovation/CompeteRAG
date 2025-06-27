@@ -7,7 +7,7 @@ label_competition_schema = {
         "  - all_files: an array of all files retrieved using kaggle api, may not contain all due to limitations\n"
         
         "Retrieve:\n"
-        "  - training_files: Based on dataset_metadata give [<string>, …],  an array of all training tabular files that need to be downloaded\n"
+        "  - training_files: Based on dataset_metadata, files_list give [<string>, …],  an array of all training tabular files that need to be downloaded\n"
         "  - target_column: an array of all column names in the dataset that must be predicted\n"
 
         "Emit ONLY these two fields as JSON—no extra keys, no prose, no markdown."
