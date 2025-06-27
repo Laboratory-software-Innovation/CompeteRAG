@@ -20,10 +20,10 @@ def find_similar_ids(
     existing kernels (identified by their row_ids) along with similarity scores.
 
     Relies on the artifacts written by build_index():
-      - INDEX_DIR/faiss_index.ip          — the FAISS Inner-Product index
+      - INDEX_DIR/faiss_index.ip               — the FAISS Inner-Product index
       - INDEX_DIR/text_encoder_model_name.txt  — the DiffCSE model name
-      - INDEX_DIR/onehot_encoder.pkl      — the fitted OneHotEncoder
-      - INDEX_DIR/row_ids.pkl             — list of kernel_refs in index order
+      - INDEX_DIR/onehot_encoder.pkl           — the fitted OneHotEncoder
+      - INDEX_DIR/row_ids.pkl                  — list of kernel_refs in index order
     """
 
     # 1) load persisted artifacts

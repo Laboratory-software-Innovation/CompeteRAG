@@ -60,10 +60,12 @@ train = ["playground-series-s4e8",
 "pubg-finish-placement-prediction",
 "bigquery-geotab-intersection-congestion",
 "scrabble-player-rating",
-"kobe-bryant-shot-selection"
+"kobe-bryant-shot-selection",
+"santa-2019-revenge-of-the-accountants"
 ]
 
-test = ["playground-series-s5e6",
+test = [
+"playground-series-s5e6",
 "playground-series-s5e5",
 "playground-series-s5e4",
 "playground-series-s5e3",

@@ -429,3 +429,54 @@ def download_train_file(slug: str, path, files_list: List[str]) -> List[Path]:
             )
         local_paths.append(dest)
     return local_paths
+
+
+#Fast Keras Tuner blueprint selection, might pick if the model token limit is exceeded with the full hyperparameter bank
+def select_hyperparameter_profile(comp_meta, hyperparameter_bank):
+    """
+    comp_meta is a dict containing at least:
+      - "competition_problem_type": e.g. "classification" or "regression"
+      - "competition_problem_subtype": e.g. "binary", "multiclass", "time-series", etc.
+      - "data_profiles": a dict mapping filenames to schema summaries,
+          from which you can infer modality and feature count.
+      - (Optionally) "dataset_metadata": free‐text hints you can keyword‐search.
+    hyperparameter_bank is your HYPERPARAMETER_BANK dict.
+    """
+    # 1. Build a set of metadata tags
+    tags = set()
+    tags.add(comp_meta["competition_problem_type"])
+    tags.add(comp_meta["competition_problem_subtype"])
+    
+    # Infer modality from data_profiles:
+    sample_profile = next(iter(comp_meta["data_profiles"].values()))
+    if any(coltype.startswith("object") or colname.lower().endswith(("text","comment"))
+           for colname, coltype in sample_profile["columns"].items()):
+        tags.add("text")
+    elif any(coltype in ("image_path","filepath") for coltype in sample_profile["columns"].values()):
+        tags.add("image")
+    elif any(coltype.startswith("datetime") for coltype in sample_profile["columns"].values()):
+        tags.add("time-series")
+    else:
+        tags.add("tabular")
+    
+    # Estimate feature count
+    n_feats = len(sample_profile["columns"]) - len(comp_meta["target_columns"])
+    if n_feats < 10:
+        tags.add("low_features")
+    elif n_feats < 500:
+        tags.add("medium_features")
+    else:
+        tags.add("high_features")
+    
+    # Missing‐value hint
+    if sample_profile.get("missing_count", 0) > 0:
+        tags.add("missing-values")
+    
+    # 2. Score each profile by tag overlap
+    best_key, best_score = None, -1
+    for key, prof in hyperparameter_bank.items():
+        score = len(tags & set(prof["tags"]))
+        if score > best_score:
+            best_key, best_score = key, score
+    
+    return best_key

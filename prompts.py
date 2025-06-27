@@ -2,9 +2,9 @@ label_competition_schema = {
     "name": "label_competition_schema",
     "description": (
         "From the raw competition and dataset metadata, extract exactly two fields:\n"
-        "  • target_column: an array of all column names in the dataset that must be predicted\n"
-        "  • files_list (the raw file names discovered on the data tab)\n"
-        "  • training_files: Based on dataset_metadata give [<string>, …],  an array of all training tabular files that need to be downloaded\n"
+        "  - target_column: an array of all column names in the dataset that must be predicted\n"
+        "  - files_list (the raw file names discovered on the data tab)\n"
+        "  - training_files: Based on dataset_metadata give [<string>, …],  an array of all training tabular files that need to be downloaded\n"
         
         "Emit ONLY these two fields as JSON—no extra keys, no prose, no markdown."
     ),
@@ -41,16 +41,16 @@ ask_structured_schema = {
         "**IMPORTANT**: Your *entire* response must be valid JSON matching this schema—**no** single-quotes, no Python `None`, no trailing commas, no code fences,\n"
         "From the competition metadata, dataset metadata, and a raw Jupyter notebook text, "
         "extract exactly these fields as JSON (no extra keys, no prose, no markdown):\n"
-        "  • competition_problem_type: one of ['classification','regression']\n"
-        "  • competition_problem_subtype: single, concise, lowercase‐and‐hyphenated phrase (e.g. “binary classification”, “multiclass classification”, “multi-label classification”, “time-series forecasting”, “continuous regression”, “ordinal regression”, etc. or any other that fits.)\n"
-        "  • competition_problem_description: dense, short, factual description of the problem, what needs to be found, no repetitive words (omit dataset‐meta here)\n"
-        "  • dataset_metadata: plain‐English dataset_metadata in plain English as a single coherent paragraph, removing any non-human symbols (no bullets or symbols)\n"
-        "  • competition_dataset_type: one of ['Tabular','Time-series','Text','Image','Audio','Video','Geospatial','Graph','Multimodal']\n"
-        "  • preprocessing_steps: array of strings, each describing one transformation (e.g. 'median‐impute missing values')\n"
-        "  • notebook_model_layers_code: literal code snippet that builds(e.g model.fit) each layer(e.g Dense, Conv, etc..) and compiles the model(e.g model.compile) \n"
-        "  • used_technique: either 'DL' or 'ML'\n"
-        "  • library: string naming the main library used (exactly one 'Tensorflow', 'Pytorch')\n"
-        "  • target_column: array of all column names in the dataset that must be predicted \n"
+        "  - competition_problem_type: one of ['classification','regression']\n"
+        "  - competition_problem_subtype: single, concise, lowercase‐and‐hyphenated phrase (e.g. “binary classification”, “multiclass classification”, “multi-label classification”, “time-series forecasting”, “continuous regression”, “ordinal regression”, etc. or any other that fits.)\n"
+        "  - competition_problem_description: dense, short, factual description of the problem, what needs to be found, no repetitive words (omit dataset‐meta here)\n"
+        "  - dataset_metadata: plain‐English dataset_metadata in plain English as a single coherent paragraph, removing any non-human symbols (no bullets or symbols)\n"
+        "  - competition_dataset_type: one of ['Tabular','Time-series','Text','Image','Audio','Video','Geospatial','Graph','Multimodal']\n"
+        "  - preprocessing_steps: array of strings, each describing one transformation (e.g. 'median‐impute missing values')\n"
+        "  - notebook_model_layers_code: literal code snippet that builds(e.g model.fit) each layer(e.g Dense, Conv, etc..) and compiles the model(e.g model.compile) \n"
+        "  - used_technique: either 'DL' or 'ML'\n"
+        "  - library: string naming the main library used (exactly one 'Tensorflow', 'Pytorch')\n"
+        "  - target_column: array of all column names in the dataset that must be predicted \n"
         "Emit ONLY those keys."
     ),
     "parameters": {
@@ -124,25 +124,108 @@ ask_structured_schema = {
     }
 }
 
+# llm_coding ---> structure_and_label_competition
+structure_and_label_competition_schema = {
+    "name": "structure_and_label_competition_schema",
+    "description": (
+        "Given raw Kaggle competition metadata, dataset metadata and a list of files, "
+        "return exactly the following fields as JSON:\n"
+        "  - competition_problem_type (\"regression\" or \"classification\")\n"
+        "  - competition_problem_subtype (lower-case, hyphenated phrase describing the subtype)\n"
+        "  - competition_problem_description (dense, non-repetitive description of the goal)\n"
+        "  - dataset_metadata (plain-English paragraph rewrite of the original)\n"
+        "  - competition_dataset_type (one of: Tabular, Time-series, Text, Image, Audio, Video, Geospatial, Graph, Multimodal)\n"
+        "  - target_column (array of the exact label column name(s) in the training files)\n"
+        "  - files_list (the raw file names discovered on the data tab)\n"
+        "  - all_files - All files used for the competition available for download, may not include all of them\n"
+        "  - training_files (subset of files_list to load as training tables)\n"
+        "  - files_preprocessing_instructions (plain-English instructions to prep those files)\n"
+        "No extra keys, no prose—just that JSON object."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "competition_problem_type": {
+                "type": "string",
+                "description": "“regression” or “classification”"
+            },
+            "competition_problem_subtype": {
+                "type": "string",
+                "description": "Specific problem subtype, lower-case and hyphenated"
+            },
+            "competition_problem_description": {
+                "type": "string",
+                "description": "Dense description of what needs to be predicted"
+            },
+            "dataset_metadata": {
+                "type": "string",
+                "description": "Rewritten dataset_metadata in plain English"
+            },
+            "competition_dataset_type": {
+                "type": "string",
+                "enum": ["Tabular","Time-series","Text","Image","Audio","Video","Geospatial","Graph","Multimodal"],
+                "description": "Primary data modality"
+            },
+            "target_column": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Label column(s) that must be predicted"
+            },
+            "files_list": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Raw list of files from the Kaggle data tab"
+            },
+            "all_files": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "All files available for download"
+            },
+            "training_files": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "**Based on the files_list, all_files, and dataset_metadata, give  an array of exact names of all training tabular files that need to be downloaded, ensure that the listed files in the dataset_metadata correspond to the ones in files_list, if not go with the file most similar in the files_list"
+            },
+            "files_preprocessing_instructions": {
+                "type": "string",
+                "description": "Based on the dataset_metadata and the files observed, write an instruction on how to preprocess(drop features, split the dataset if no testing was given etc, etc)"
+            }
+        },
+        "required": [
+            "competition_problem_type",
+            "competition_problem_subtype",
+            "competition_problem_description",
+            "dataset_metadata",
+            "competition_dataset_type",
+            "target_column",
+            "files_list",
+            "all_files",
+            "training_files",
+            "files_preprocessing_instructions"
+        ]
+    }
+}
+
+
 
 # llm_coding ----> solve_competition_keras
 generate_keras_schema = {
         "name": "generate_keras_schema",   
         "description": (
             "Given:\n"
-            "  • `competition_slug`: the Kaggle competition slug,\n"
-            "  • `competition_problem_description`: Dense competition problem description,\n"
-            "  • `competition_problem_type`: Classification|Regression,\n"
-            "  • `competition_problem_description`: Specifies the subtype of the problem,\n"
-            "  • `dataset_metadata`: Full NLP explanation of the dataset, the columns that need to be predicted and the training files provided,\n"
-            "  • `data_profiles`: compacted schema & target summaries for each file,\n"
-            "  • `files_preprocessing_instructions`: suggested data–prep steps,\n"
-            "  • `target_columns`: List of one or more columns to predict (for multi-output tasks)."
-            "  • `training_files`: list of one or more CSV/TSV files to read,\n"
-            "  • `all_files`: list of all files included in the competition, decide whether there are testing files and whether you need to split the training dataset,\n"        
-            "  • `examples`: top-K example kernels for inspiration,\n"
+            "  - `competition_slug`: the Kaggle competition slug,\n"
+            "  - `competition_problem_description`: Dense competition problem description,\n"
+            "  - `competition_problem_type`: Classification|Regression,\n"
+            "  - `competition_problem_description`: Specifies the subtype of the problem,\n"
+            "  - `dataset_metadata`: Full NLP explanation of the dataset, the columns that need to be predicted and the training files provided,\n"
+            "  - `data_profiles`: compacted schema & target summaries for each file,\n"
+            "  - `files_preprocessing_instructions`: suggested data–prep steps,\n"
+            "  - `target_columns`: List of one or more columns to predict (for multi-output tasks)."
+            "  - `training_files`: list of one or more CSV/TSV files to read,\n"
+            "  - `all_files`: list of all files included in the competition, decide whether there are testing files and whether you need to split the training dataset,\n"        
+            "  - `examples`: top-K example kernels for inspiration,\n"
             "Emit ONLY a single JSON object with exactly one field:\n"
-            "  • ***`notebook_code`: a string containing **only** runnable Python code wrapped in `<Code>…</Code>`.\n\n"
+            "  - ***`notebook_code`: a string containing **only** runnable Python code wrapped in `<Code>…</Code>`.\n\n"
             "The generated code must implement:\n"
             "0. **Target encoding**: after reading the dataset and before any split,\n"
             "   use `LabelEncoder().fit(y)` → `y_enc = le.transform(y)` and keep `le.classes_` for later.\n"
@@ -184,13 +267,13 @@ generate_keras_schema = {
             "    ```\n"
             "    2. Drop any other non-feature columns by name (no renaming ever):\n"
             "        ```python\n"
-            "        X = df.drop(columns=target_cols + [id_col], errors='ignore')\n"
+            "        X = df.drop(columns=target_cols   [id_col], errors='ignore')\n"
             "        ```\n"
             "    3. Proceed without ever renaming or lowercasing — all subsequent code should refer to columns exactly as in the original files.\n"
             "   - If there is more than one file, decide which ones are for training and testing based on `training_files` and `all_files` and `dataset_metadata` else split the single dataset 80/20 stratified on target.\n"
             "   - Detect & preserve any ID column.\n"
             "Preprocessing MUST ALSO include:\n"
-            "  • Label encoding of the target column to integers using\n"
+            "  - Label encoding of the target column to integers using\n"
             "    `sklearn.preprocessing.LabelEncoder`, preserving the mapping for inverse transform.\n"
             "4. **Feature Engineering**: automatically drop or transform obviously irrelevant columns (e.g. all-nan, high-cardinalities), at your discretion.\n"
             "5. **Train/Validation Split**: if not already split:\n"
@@ -209,13 +292,13 @@ generate_keras_schema = {
             "6. **Preprocessing Pipeline**:\n"
             "   - Auto-detect numeric vs categorical via `df.select_dtypes`.\n"
             "   - Build `ColumnTransformer`:\n"
-            "       • Numeric: `SimpleImputer(strategy='median', add_indicator=True)` → `StandardScaler()`\n"
-            "       • Categorical: `SimpleImputer(strategy='most_frequent')` → `OneHotEncoder(sparse_output=False, handle_unknown='ignore')`\n"
+            "       - Numeric: `SimpleImputer(strategy='median', add_indicator=True)` → `StandardScaler()`\n"
+            "       - Categorical: `SimpleImputer(strategy='most_frequent')` → `OneHotEncoder(sparse_output=False, handle_unknown='ignore')`\n"
             "   - Fit-transform train and transform val/test.\n"
             "7. **Determine feature dimension**: `input_shape = X_train_proc.shape[1]`.\n"
             "8. **Model Definition**: build an ANN in Keras/TensorFlow (or PyTorch) with at least two hidden layers, including `Dropout` or `BatchNormalization`.\n"
             "9. **Compilation**: `Adam` optimizer, `binary_crossentropy` (or `mse`), metrics `['accuracy']` (or `['RootMeanSquaredError']`).\n"
-            "10. **Callbacks & Training**: `EarlyStopping(monitor='val_loss', patience=5)` + `ModelCheckpoint(save_best_only=True)`, up to 100 epochs, record training duration.\n"
+            "10. **Callbacks & Training**: `EarlyStopping(monitor='val_loss', patience=5)`   `ModelCheckpoint(save_best_only=True)`, up to 100 epochs, record training duration.\n"
             "11. **Evaluation & Logging**: load best weights, extract `training_accuracy`, `training_loss`, `validation_accuracy`, `validation_loss`, save to `results.json`.\n"
             "12. **Prediction & Submission**: transform test set, predict, threshold at 0.5 if classification, write `submission_result.csv` with preserved IDs .\n"
             "      ```python\n"
@@ -333,25 +416,58 @@ generate_tuner_schema = {
         "   `competition_slug`: the Kaggle competition slug,\n"
         "   `competition_problem_description`, `competition_problem_type`, `competition_problem_subtype`,\n"
         "    `dataset_metadata`, `data_profiles`, `training_files`, `all_files` (from comp_struct),\n"
-        "   `existing_solution_code`: the text of the working Keras solution,\n"
-        "   `hyperparameter_bank`: a mapping of template search-spaces (from papers) keyed by scenario tags,\n"
-        "Emit ONLY a single JSON object with exactly one field:\n"
-        "   `tuner_code`: a string containing **only** the complete Keras-Tuner runnable Python code wrapped in `<Code>…</Code>`\n"
-        "    (including imports, HyperModel subclass, tuner setup, search, and final retrain)\n"
+        "   `existing_solution_code`: the text of the working Keras solution,\n"         
+        "   Emit ONLY a single JSON object with exactly one field:\n"
+        "   `tuner_code`: a string containing the **full** runnable Python notebook code wrapped in `<Code>…</Code>`\n"
+        "   This must include **all** original data loading, preprocessing, model definition, callbacks, training, **and** the Keras-Tuner integration (imports, HyperModel wrapper, tuner setup, search, and best_model rebuild), as well as final evaluation and `submission.to_csv`.\n"        "    (including imports, HyperModel subclass, tuner setup, search, and final retrain)\n"
         "    Keep the structure the same as the original Keras code, including the training timing, saving the result into a submission file "
-        "    **Write** submission file\n"
-        "    submission.to_csv('submission_result.csv', index=False)\n"
-        "No other keys, no prose, no markdown fences—just valid JSON."
+        "\n"
+        "   0. From `hyperparameter_bank`, pick the profile whose `tags` best match this competition’s type, subtype, and data characteristics. Name it `chosen_profile`.\n"
+        "   0.1. Use `chosen_profile[\"params\"]` to drive every `hp.*` call below.\n" 
+        "# TUNER INTEGRATION (replace original build & fit):\n"
+        "1. Add `import keras_tuner as kt` alongside existing imports.\n"
+        "2. Wrap your existing `build_model(...)` in:\n"
+        "   ```python\n"
+        "   class MyHyperModel(kt.HyperModel):\n"
+        "       def build(self, hp):\n"
+        "           return build_model(\n"
+        "               # replace only these hyperparams via hp.* from hyperparameter_bank\n"
+        "               units=hp.Int('units', 64, 512, step=64),\n"
+        "               dropout=hp.Float('dropout', 0.0, 0.5, step=0.1),\n"
+        "               learning_rate=hp.Float('learning_rate', 1e-4, 1e-2, sampling='log'),\n"
+        "               # keep all other original args unchanged\n"
+        "           )\n"
+        "   ```\n"
+        "3. Instead of any `model.fit(...)`, insert:\n"
+        "   ```python\n"
+        "   tuner = kt.RandomSearch(\n"
+        "       MyHyperModel(),\n"
+        "       objective='val_loss',\n"
+        "       max_trials=20,\n"
+        "       executions_per_trial=1,\n"
+        "       seed=42\n"
+        "   )\n"
+        "   tuner.search(\n"
+        "       X_train, Y_train,\n"
+        "       validation_data=(X_val, Y_val),\n"
+        "       batch_size=hp.Choice('batch_size',[64,128,256]),\n"
+        "       epochs=hp.Int('epochs',10,50,step=5),\n"
+        "       callbacks=[early_stopping,checkpoint]\n"
+        "   )\n"
+        "   best_hp = tuner.get_best_hyperparameters(1)[0]\n"
+        "   best_model = tuner.hypermodel.build(best_hp)\n"
+        "   ```\n"
+        "4. Hand back `best_model` into your existing evaluation & submission code.\n"
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "competition_slug":              {"type": "string"},
-            "competition_problem_description":{"type": "string"},
-            "competition_problem_type":               {"type": "string"},
-            "competition_problem_subtype":    {"type": "string"},
-            "dataset_metadata":               {"type": "string"},
-            "data_profiles":                  {"type": "object"},
+            "competition_slug":                 {"type": "string"},
+            "competition_problem_description":  {"type": "string"},
+            "competition_problem_type":         {"type": "string"},
+            "competition_problem_subtype":      {"type": "string"},
+            "dataset_metadata":                 {"type": "string"},
+            "data_profiles":                    {"type": "object"},
             "training_files": {
                 "type": "array",
                 "items": {"type": "string"}
@@ -360,12 +476,16 @@ generate_tuner_schema = {
                 "type": "array",
                 "items": {"type": "string"}
             },
-            "existing_solution_code":         {"type": "string"},
-            "hyperparameter_bank":            {"type": "object"},
+            "existing_solution_code":           {"type": "string"},
+            "hyperparameter_bank":              {"type": "object"},
 
             "tuner_code": {
                 "type": "string",
-                "description": "***The complete Keras-Tuner runnable Python code wrapped in <Code>…</Code>."
+                "description": (
+                  "***The complete runnable Python code for the competition notebook, including data loading, preprocessing pipeline, original model definition, "
+                  "callbacks, Keras-Tuner integration (imports, HyperModel subclass, tuner setup & search), final best-model training/evaluation, and submission code, "
+                  "all wrapped in `<Code>…</Code>`.***"
+                )
             }
         },
         "required": [
@@ -379,89 +499,6 @@ generate_tuner_schema = {
             "existing_solution_code",
             "hyperparameter_bank",
             "tuner_code"
-        ]
-    }
-}
-
-
-# llm_coding ---> structure_and_label_competition
-structure_and_label_competition_schema = {
-    "name": "structure_and_label_competition_schema",
-    "description": (
-        "Given raw Kaggle competition metadata, dataset metadata and a list of files, "
-        "return exactly the following fields as JSON:\n"
-        "  - competition_problem_type (\"regression\" or \"classification\")\n"
-        "  - competition_problem_subtype (lower-case, hyphenated phrase describing the subtype)\n"
-        "  - competition_problem_description (dense, non-repetitive description of the goal)\n"
-        "  - dataset_metadata (plain-English paragraph rewrite of the original)\n"
-        "  - competition_dataset_type (one of: Tabular, Time-series, Text, Image, Audio, Video, Geospatial, Graph, Multimodal)\n"
-        "  - target_column (array of the exact label column name(s) in the training files)\n"
-        "  - files_list (the raw file names discovered on the data tab)\n"
-        "  - all_files - All files used for the competition available for download, may not include all of them\n"
-        "  - training_files (subset of files_list to load as training tables)\n"
-        "  - files_preprocessing_instructions (plain-English instructions to prep those files)\n"
-        "No extra keys, no prose—just that JSON object."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "competition_problem_type": {
-                "type": "string",
-                "description": "“regression” or “classification”"
-            },
-            "competition_problem_subtype": {
-                "type": "string",
-                "description": "Specific problem subtype, lower-case and hyphenated"
-            },
-            "competition_problem_description": {
-                "type": "string",
-                "description": "Dense description of what needs to be predicted"
-            },
-            "dataset_metadata": {
-                "type": "string",
-                "description": "Rewritten dataset_metadata in plain English"
-            },
-            "competition_dataset_type": {
-                "type": "string",
-                "enum": ["Tabular","Time-series","Text","Image","Audio","Video","Geospatial","Graph","Multimodal"],
-                "description": "Primary data modality"
-            },
-            "target_column": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "Label column(s) that must be predicted"
-            },
-            "files_list": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "Raw list of files from the Kaggle data tab"
-            },
-            "all_files": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "All files available for download"
-            },
-            "training_files": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "**Based on the files_list, all_files, and dataset_metadata, give  an array of exact names of all training tabular files that need to be downloaded, ensure that the listed files in the dataset_metadata correspond to the ones in files_list, if not go with the file most similar in the files_list"
-            },
-            "files_preprocessing_instructions": {
-                "type": "string",
-                "description": "Based on the dataset_metadata and the files observed, write an instruction on how to preprocess(drop features, split the dataset if no testing was given etc, etc)"
-            }
-        },
-        "required": [
-            "competition_problem_type",
-            "competition_problem_subtype",
-            "competition_problem_description",
-            "dataset_metadata",
-            "competition_dataset_type",
-            "target_column",
-            "files_list",
-            "all_files",
-            "training_files",
-            "files_preprocessing_instructions"
         ]
     }
 }

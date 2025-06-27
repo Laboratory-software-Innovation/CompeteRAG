@@ -73,46 +73,52 @@ if __name__ == "__main__":
         sys.exit(0)
 
     elif cmd == "code":
-        top_k     = 5
-        kt = 1
+        if len(sys.argv) != 4:
+            print("Usage: python rag.py code <top-k> <keras-tuner 0|1>")
+            sys.exit(1)
+
+        slug = sys.argv[1]            
+        top_k = int(sys.argv[2])      
+        kt    = bool(int(sys.argv[3]))
+        print(slug)
+
         if kt == 0: 
             for slug in test: 
                 notebook_code = solve_competition_keras(
                     slug = slug,
                     structured_csv= "notebooks_structured.csv",
-                    top_k         = top_k,
-                    kt            = kt, 
-
+                    top_k         = top_k
                 )
-                # write out the notebook
                 out_path = Path(f"test/{slug}/{slug}_solution.py")
                 out_path.write_text(notebook_code, encoding="utf-8")
                 print(f"[OK] Solution code written to {out_path}")
         else: 
             for slug in test: 
                 notebook_code = solve_competition_tuner(
-                    slug = slug
+                    slug = slug 
                 )
-                # write out the notebook
                 out_path = Path(f"test/{slug}/{slug}_kt_solution.py")
                 out_path.write_text(notebook_code, encoding="utf-8")
                 print(f"[OK] Solution code written to {out_path}")
 
+
     elif cmd == "followup":
-        # Usage: python rag.py followup <solution_file.py>
-        if len(sys.argv) != 3:
-            print("Usage: python rag.py followup slug")
+       # Usage: python rag.py followup <slug> <simplified_flag> <keras-tuner>
+        if len(sys.argv) != 5:
+            print("Usage: python rag.py followup <slug> <simplified 0|1> <keras-tuner 0|1>")
             sys.exit(1)
             
-        slug = sys.argv[2]
+        slug       = sys.argv[1]
+        simplified = bool(int(sys.argv[2]))
+        kt         = bool(int(sys.argv[3]))
+
         print(slug)
         try:
-            corrected_code = followup_prompt(str(slug))
+            corrected_code = followup_prompt(str(slug), simplified, kt)
         except Exception as e:
             print(f"[ERROR] {e}")
             sys.exit(1)
 
-        # Write out the corrected version alongside the original
         orig = Path(str(slug))
         fixed = orig.with_name(orig.stem + "_fixed.py")
         fixed.write_text(corrected_code, encoding="utf-8")
