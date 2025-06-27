@@ -9,7 +9,7 @@ import openai
 
 from config import OPENAI_MODEL,kaggle_api
 from selenium_helper import init_selenium_driver
-from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab, describe_schema, compact_profile_for_llm
+from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab, describe_schema, compact_profile_for_llm,select_hyperparameter_profile
 from similarity import find_similar_ids
 from prompts import generate_keras_schema,structure_and_label_competition_schema,generate_tuner_schema
 from config import kaggle_api
@@ -98,7 +98,6 @@ def solve_competition_keras(
     slug:            str, 
     structured_csv:  str = "notebooks_structured.csv",
     top_k:           int = 5,
-    kt:              bool = 0, 
 ) -> str:
 
     driver = init_selenium_driver()
@@ -227,24 +226,34 @@ def solve_competition_keras(
     return code 
 
 
-def solve_competition_tuner(slug: str) -> str:
+def solve_competition_tuner(slug: str, simplified: bool = 0) -> str:
     base = Path(f"test/{slug}")
 
     comp_struct = json.loads((base / f"{slug}_desc.json").read_text(encoding="utf-8"))
     # load the existing keras solution
     existing_solution_code = (base / f"{slug}_solution.py").read_text(encoding="utf-8")
 
+    # 1) Select the best‐matching profile key:
+    profile_key = select_hyperparameter_profile(comp_struct, HYPERPARAMETER_BANK)
+    # 2) Pull out that single profile dict:
+    chosen_profile = HYPERPARAMETER_BANK[profile_key]
+
+    if simplified == 1:
+        hp_payload = chosen_profile
+    else:
+        hp_payload = HYPERPARAMETER_BANK
+
     payload = {
-        "competition_slug":               slug,
+        "competition_slug":                slug,
         "competition_problem_description": comp_struct["competition_problem_description"],
-        "competition_problem_type":                comp_struct["competition_problem_type"],
+        "competition_problem_type":        comp_struct["competition_problem_type"],
         "competition_problem_subtype":     comp_struct["competition_problem_subtype"],
         "dataset_metadata":                comp_struct["dataset_metadata"],
         "data_profiles":                   comp_struct["data_profiles"],
         "training_files":                  comp_struct["training_files"],
         "all_files":                       comp_struct["all_files"],
         "existing_solution_code":          existing_solution_code,
-        "hyperparameter_bank":             HYPERPARAMETER_BANK
+        "hyperparameter_bank":             hp_payload
     }
 
     system_msg = {
