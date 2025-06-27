@@ -1,11 +1,15 @@
 label_competition_schema = {
     "name": "label_competition_schema",
     "description": (
-        "From the raw competition and dataset metadata, extract exactly two fields:\n"
-        "  - target_column: an array of all column names in the dataset that must be predicted\n"
-        "  - files_list (the raw file names discovered on the data tab)\n"
-        "  - training_files: Based on dataset_metadata give [<string>, …],  an array of all training tabular files that need to be downloaded\n"
+        "Given:\n"
+        "  - the raw competition metadata and dataset metadata,\n"
+        "  - files_list - files that were parsed and that are available for download:\n"
+        "  - all_files: an array of all files retrieved using kaggle api, may not contain all due to limitations\n"
         
+        "Retrieve:\n"
+        "  - training_files: Based on dataset_metadata give [<string>, …],  an array of all training tabular files that need to be downloaded\n"
+        "  - target_column: an array of all column names in the dataset that must be predicted\n"
+
         "Emit ONLY these two fields as JSON—no extra keys, no prose, no markdown."
     ),
     "parameters": {
@@ -16,11 +20,11 @@ label_competition_schema = {
                 "items": {"type": "string"},
                 "description": "an array of all column names in the dataset that must be predicted"
             },
-            "files_list": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "Raw list of files from the Kaggle data tab"
-            },
+            # "files_list": {
+            #     "type": "array",
+            #     "items": { "type": "string" },
+            #     "description": "Raw list of files from the Kaggle data tab"
+            # },
             "training_files": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -28,7 +32,7 @@ label_competition_schema = {
             }
             
         },
-        "required": ["target_column", "files_list", "training_files"]
+        "required": ["target_column", "training_files"]
     }
 }
 
