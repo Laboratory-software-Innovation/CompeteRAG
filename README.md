@@ -43,36 +43,29 @@ requests.exceptions.HTTPError: 403 Client Error: Forbidden for url: https://www.
 ```
 
 
-## Collecting and Structuring Notebooks
+## Collecting and Encoded Matrix From the Notebooks Metadata
 
 Before we can even compare to any notebooks, we first need to get at least a small dataset. Therefore, we need to collect competitions, their metadata, its datasets and solutions. First, it parses each competition's html page and strips it to text. Next, downloads the dataset (train.csv file), runs it through a summarization function and provides a dense summary of the dataset. It is then sent to an LLM to provide as a much more dense but still helpful summary. It then filters the notebooks section of every single competition by TensorFlow and PyTorch. The resulting notebooks are then sent through an LLM for more deep analysis, for example if the LLM understands that the notebook uses a Machine Learning algorithms, it skips that notebooks and moves on. 
 
-```
-python3 rag.py collect_and_structured
-```
-
-
-## Building and Encoded Matrix From the Notebooks Metadata
-
-Since we now have at least some solutions to compare to, our next step is to build an encoded matrix for the later comparison.
+Finally as soon as we have all the notebooks metadata saved and structured we build an encoded matrix for the later comparison.
 
 ```
-python3 rag.py build_index
+python3 rag.py cb
 ```
 
 ## Building the Code for a New Competition
 
-The final step to find the notebooks solutions that are as close as possible to our new competition. Now, the API will find top-k solutions similar to the provided competition, and append them to our next LLM prompt. 
+The final step to find the notebooks solutions that are as close as possible to our new competitions. Now, the API will find top-k solutions similar to the provided competitions, and append them to our next LLM prompt. 
 
 ```
-python3 rag.py auto_solve_code <competition-slug> <class_column> <#top-k>
+python3 rag.py code <top-k> <simplified 0|1 only for keras tuner> <keras-tuner 0|1>
 ```
 
-competition-slug - a part of a link, something like playground-series-s5e4
+<top-k> - top-k solution you would like to feed into the LLM for relying
 
-class_column - can be found in the Data section of a competition (e.g Listening_Time_minutes) 
+<simplified> - boolean, if 1 picks an exact hyperparameter blueprint for Keras Tuner, 0 - loads up all blueprints for the LLM to decide on its own
 
-<#top-k> - top-k solution you would like to feed into the LLM for relying
+<keras-tuner> - boolean, only works if the keras code already exists. If 1 takes the existing Keras code and turns it into its Keras Tuner version
 
 ## Results
 
