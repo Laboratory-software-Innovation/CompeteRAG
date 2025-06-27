@@ -73,13 +73,14 @@ if __name__ == "__main__":
         sys.exit(0)
 
     elif cmd == "code":
-        if len(sys.argv) != 4:
-            print("Usage: python rag.py code <top-k> <keras-tuner 0|1>")
+        if len(sys.argv) != 6:
+            print("Usage: python rag.py code <top-k> <simplified 0|1 only for keras tuner> <keras-tuner 0|1>")
             sys.exit(1)
 
-        slug = sys.argv[1]            
-        top_k = int(sys.argv[2])      
-        kt    = bool(int(sys.argv[3]))
+        slug = sys.argv[2]            
+        top_k = int(sys.argv[3])  
+        simplified = bool(int(sys.argv[4]))    
+        kt    = bool(int(sys.argv[5]))
         print(slug)
 
         if kt == 0: 
@@ -95,7 +96,8 @@ if __name__ == "__main__":
         else: 
             for slug in test: 
                 notebook_code = solve_competition_tuner(
-                    slug = slug 
+                    slug = slug, 
+                    simplified=simplified
                 )
                 out_path = Path(f"test/{slug}/{slug}_kt_solution.py")
                 out_path.write_text(notebook_code, encoding="utf-8")
@@ -103,18 +105,17 @@ if __name__ == "__main__":
 
 
     elif cmd == "followup":
-       # Usage: python rag.py followup <slug> <simplified_flag> <keras-tuner>
-        if len(sys.argv) != 5:
-            print("Usage: python rag.py followup <slug> <simplified 0|1> <keras-tuner 0|1>")
+       # Usage: python rag.py followup <slug> <keras-tuner>
+        if len(sys.argv) != 4:
+            print("Usage: python rag.py followup <slug> <keras-tuner 0|1>")
             sys.exit(1)
-            
-        slug       = sys.argv[1]
-        simplified = bool(int(sys.argv[2]))
+
+        slug       = sys.argv[2]
         kt         = bool(int(sys.argv[3]))
 
         print(slug)
         try:
-            corrected_code = followup_prompt(str(slug), simplified, kt)
+            corrected_code = followup_prompt(str(slug), kt)
         except Exception as e:
             print(f"[ERROR] {e}")
             sys.exit(1)
