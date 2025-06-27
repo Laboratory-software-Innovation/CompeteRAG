@@ -1,11 +1,11 @@
 # Data handling
-pandas>=1.5
-numpy>=1.24
+pandas
+numpy
 
 # Machine learning & embeddings
 torch
 transformers
-sentence-transformers>=2.2
+sentence-transformers
 faiss-cpu   # or faiss-gpu if you have GPU support
 scikit-learn
 tf-keras

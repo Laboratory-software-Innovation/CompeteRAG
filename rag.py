@@ -73,15 +73,13 @@ if __name__ == "__main__":
         sys.exit(0)
 
     elif cmd == "code":
-        if len(sys.argv) != 6:
+        if len(sys.argv) != 5:
             print("Usage: python rag.py code <top-k> <simplified 0|1 only for keras tuner> <keras-tuner 0|1>")
             sys.exit(1)
 
-        slug = sys.argv[2]            
-        top_k = int(sys.argv[3])  
-        simplified = bool(int(sys.argv[4]))    
-        kt    = bool(int(sys.argv[5]))
-        print(slug)
+        top_k = int(sys.argv[2])  
+        simplified = bool(int(sys.argv[3]))    
+        kt    = bool(int(sys.argv[4]))
 
         if kt == 0: 
             for slug in test: 
