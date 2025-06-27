@@ -24,6 +24,7 @@ openai
 beautifulsoup4
 selenium
 webdriver-manager
+geckodriver_autoinstaller
 
 # Utilities
 bs4
