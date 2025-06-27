@@ -225,7 +225,6 @@ generate_keras_schema = {
             "  - `all_files`: list of all files included in the competition, decide whether there are testing files and whether you need to split the training dataset,\n"        
             "  - `examples`: top-K example kernels for inspiration,\n"
             "Emit ONLY a single JSON object with exactly one field:\n"
-            "  - ***`notebook_code`: a string containing **only** runnable Python code wrapped in `<Code>…</Code>`.\n\n"
             "The generated code must implement:\n"
             "0. **Target encoding**: after reading the dataset and before any split,\n"
             "   use `LabelEncoder().fit(y)` → `y_enc = le.transform(y)` and keep `le.classes_` for later.\n"
@@ -317,91 +316,93 @@ generate_keras_schema = {
             "# **Write** submission file\n"
             "submission.to_csv('submission_result.csv', index=False)\n"
             "         ```   \n"
-            "No other imports, prose, markdown or keys—just the JSON with a single `notebook_code` field.\n"
+            "No other imports, prose, markdown or keys—just the JSON with a single ***`notebook_code` field.\n"
+            " \"notebook_code\": you should save here a string containing **only** runnable Python code wrapped in `<Code>…</Code>`.\n\n"
+
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "competition_slug": {
-                    "type": "string",
-                    "description": "The Kaggle competition slug."
-                },
-                "competition_problem_description": {
-                    "type": "string",
-                    "description": "Dense competition description giving the core goal."
-                },
-                "competition_problem_type": {
-                    "type": "string",
-                    "description": "Classification|Regression"
-                },
-                "competition_problem_subtype": {
-                    "type": "string",
-                    "description": "Specifies the subtype of the problem"
-                },
-                "dataset_metadata": {
-                    "type": "string",
-                    "description": "Full NLP explanation of the dataset, the columns that need to be predicted and the training files provided"
-                },
-                "data_profiles": {
-                    "type": "object",
-                    "description": (
-                        "A mapping filename → compacted schema & target summary, "
-                        "as returned by compact_profile_for_llm."
-                    )
-                },
-                "files_preprocessing_instructions": {
-                    "type": "string",
-                    "description": "Instructions for how to preprocess the raw files."
-                },
-                "target_columns": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Exact column name(s) of the target feature(s), as they appear in the raw CSV."
-                },
-                "training_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of all training‐set filenames to read."
-                },
-                "all_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of all files include in the competition, including training and testing files"
-                },
-                "examples": {
-                    "type": "array",
-                    "description": "Top‐K similar kernels for inspiration.",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "kernel_ref":           {"type":"string"},
-                            "score":                {"type":"number"},
-                            "preprocessing_steps":  {
-                                "type":"array",
-                                "items":{"type":"string"}
-                            },
-                            "model_layers_code":    {"type":"string"}
-                        },
-                        "required":["kernel_ref","score","preprocessing_steps","model_layers_code"]
-                    }
-                },
+                # "competition_slug": {
+                #     "type": "string",
+                #     "description": "The Kaggle competition slug."
+                # },
+                # "competition_problem_description": {
+                #     "type": "string",
+                #     "description": "Dense competition description giving the core goal."
+                # },
+                # "competition_problem_type": {
+                #     "type": "string",
+                #     "description": "Classification|Regression"
+                # },
+                # "competition_problem_subtype": {
+                #     "type": "string",
+                #     "description": "Specifies the subtype of the problem"
+                # },
+                # "dataset_metadata": {
+                #     "type": "string",
+                #     "description": "Full NLP explanation of the dataset, the columns that need to be predicted and the training files provided"
+                # },
+                # "data_profiles": {
+                #     "type": "object",
+                #     "description": (
+                #         "A mapping filename → compacted schema & target summary, "
+                #         "as returned by compact_profile_for_llm."
+                #     )
+                # },
+                # "files_preprocessing_instructions": {
+                #     "type": "string",
+                #     "description": "Instructions for how to preprocess the raw files."
+                # },
+                # "target_columns": {
+                #     "type": "array",
+                #     "items": { "type": "string" },
+                #     "description": "Exact column name(s) of the target feature(s), as they appear in the raw CSV."
+                # },
+                # "training_files": {
+                #     "type": "array",
+                #     "items": {"type": "string"},
+                #     "description": "List of all training‐set filenames to read."
+                # },
+                # "all_files": {
+                #     "type": "array",
+                #     "items": {"type": "string"},
+                #     "description": "List of all files include in the competition, including training and testing files"
+                # },
+                # "examples": {
+                #     "type": "array",
+                #     "description": "Top‐K similar kernels for inspiration.",
+                #     "items": {
+                #         "type": "object",
+                #         "properties": {
+                #             "kernel_ref":           {"type":"string"},
+                #             "score":                {"type":"number"},
+                #             "preprocessing_steps":  {
+                #                 "type":"array",
+                #                 "items":{"type":"string"}
+                #             },
+                #             "model_layers_code":    {"type":"string"}
+                #         },
+                #         "required":["kernel_ref","score","preprocessing_steps","model_layers_code"]
+                #     }
+                # },
                 "notebook_code": {
                     "type": "string",
-                    "description": "***The complete runnable Python code wrapped in <Code>…</Code>."
+                    "description": "***The complete runnable Python code wrapped in <Code>…</Code>, saved as an output.***"
                 }
             },
             "required": [
-                "competition_slug",
-                "competition_problem_description",
-                "competition_problem_type",      
-                "competition_problem_subtype",
-                "dataset_metadata",
-                "data_profiles",
-                "files_preprocessing_instructions",
-                "target_columns",
-                "training_files",
-                "all_files",
-                "examples",
+                # "competition_slug",
+                # "competition_problem_description",
+                # "competition_problem_type",      
+                # "competition_problem_subtype",
+                # "dataset_metadata",
+                # "data_profiles",
+                # "files_preprocessing_instructions",
+                # "target_columns",
+                # "training_files",
+                # "all_files",
+                # "examples",
                 "notebook_code"
             ]
         }
@@ -418,7 +419,7 @@ generate_tuner_schema = {
         "    `dataset_metadata`, `data_profiles`, `training_files`, `all_files` (from comp_struct),\n"
         "   `existing_solution_code`: the text of the working Keras solution,\n"         
         "   Emit ONLY a single JSON object with exactly one field:\n"
-        "   `tuner_code`: a string containing the **full** runnable Python notebook code wrapped in `<Code>…</Code>`\n"
+        "   ***`tuner_code`: a string containing the **full** runnable Python notebook code wrapped in `<Code>…</Code>`\n"
         "   This must include **all** original data loading, preprocessing, model definition, callbacks, training, **and** the Keras-Tuner integration (imports, HyperModel wrapper, tuner setup, search, and best_model rebuild), as well as final evaluation and `submission.to_csv`.\n"        "    (including imports, HyperModel subclass, tuner setup, search, and final retrain)\n"
         "    Keep the structure the same as the original Keras code, including the training timing, saving the result into a submission file "
         "\n"
@@ -462,42 +463,42 @@ generate_tuner_schema = {
     "parameters": {
         "type": "object",
         "properties": {
-            "competition_slug":                 {"type": "string"},
-            "competition_problem_description":  {"type": "string"},
-            "competition_problem_type":         {"type": "string"},
-            "competition_problem_subtype":      {"type": "string"},
-            "dataset_metadata":                 {"type": "string"},
-            "data_profiles":                    {"type": "object"},
-            "training_files": {
-                "type": "array",
-                "items": {"type": "string"}
-            },
-            "all_files": {
-                "type": "array",
-                "items": {"type": "string"}
-            },
-            "existing_solution_code":           {"type": "string"},
-            "hyperparameter_bank":              {"type": "object"},
+            # "competition_slug":                 {"type": "string"},
+            # "competition_problem_description":  {"type": "string"},
+            # "competition_problem_type":         {"type": "string"},
+            # "competition_problem_subtype":      {"type": "string"},
+            # "dataset_metadata":                 {"type": "string"},
+            # "data_profiles":                    {"type": "object"},
+            # "training_files": {
+            #     "type": "array",
+            #     "items": {"type": "string"}
+            # },
+            # "all_files": {
+            #     "type": "array",
+            #     "items": {"type": "string"}
+            # },
+            # "existing_solution_code":           {"type": "string"},
+            # "hyperparameter_bank":              {"type": "object"},
 
             "tuner_code": {
                 "type": "string",
                 "description": (
                   "***The complete runnable Python code for the competition notebook, including data loading, preprocessing pipeline, original model definition, "
                   "callbacks, Keras-Tuner integration (imports, HyperModel subclass, tuner setup & search), final best-model training/evaluation, and submission code, "
-                  "all wrapped in `<Code>…</Code>`.***"
+                  "all wrapped in `<Code>…</Code>`, saved as an output.***"
                 )
             }
         },
         "required": [
-            "competition_slug",
-            "competition_problem_description",
-            "competition_problem_type",
-            "competition_problem_subtype",
-            "dataset_metadata",
-            "data_profiles",
-            "training_files",
-            "existing_solution_code",
-            "hyperparameter_bank",
+            # "competition_slug",
+            # "competition_problem_description",
+            # "competition_problem_type",
+            # "competition_problem_subtype",
+            # "dataset_metadata",
+            # "data_profiles",
+            # "training_files",
+            # "existing_solution_code",
+            # "hyperparameter_bank",
             "tuner_code"
         ]
     }
