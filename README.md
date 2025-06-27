@@ -61,11 +61,11 @@ The final step to find the notebooks solutions that are as close as possible to 
 python3 rag.py code <top-k> <simplified 0|1 only for keras tuner> <keras-tuner 0|1>
 ```
 
-<top-k> - top-k solution you would like to feed into the LLM for relying
+\<top-k> - top-k solution you would like to feed into the LLM for relying
 
-<simplified> - boolean, if 1 picks an exact hyperparameter blueprint for Keras Tuner, 0 - loads up all blueprints for the LLM to decide on its own
+\<simplified> - boolean, if 1 picks an exact hyperparameter blueprint for Keras Tuner, 0 - loads up all blueprints for the LLM to decide on its own
 
-<keras-tuner> - boolean, only works if the keras code already exists. If 1 takes the existing Keras code and turns it into its Keras Tuner version
+\<keras-tuner> - boolean, only works if the keras code already exists. If 1 takes the existing Keras code and turns it into its Keras Tuner version
 
 ## Results
 
