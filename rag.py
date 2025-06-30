@@ -73,33 +73,43 @@ if __name__ == "__main__":
         sys.exit(0)
 
     elif cmd == "code":
-        if len(sys.argv) != 5:
-            print("Usage: python rag.py code <top-k> <simplified 0|1 only for keras tuner> <keras-tuner 0|1>")
+        if len(sys.argv) < 5:
+            print("Usage: python rag.py code <top-k> <simplified 0|1 only for keras tuner> <keras-tuner 0|1> <slug: optional, to start at a certain competition>")
             sys.exit(1)
 
         top_k = int(sys.argv[2])  
         simplified = bool(int(sys.argv[3]))    
         kt    = bool(int(sys.argv[4]))
+        comp = None if len(sys.argv) < 6 else sys.argv[5]
+
+        run = 1 if comp is None else 0
 
         if kt == 0: 
+            
             for slug in test: 
-                notebook_code = solve_competition_keras(
-                    slug = slug,
-                    structured_csv= "notebooks_structured.csv",
-                    top_k         = top_k
-                )
-                out_path = Path(f"test/{slug}/{slug}_solution.py")
-                out_path.write_text(notebook_code, encoding="utf-8")
-                print(f"[OK] Solution code written to {out_path}")
+                if run == 1 or slug == comp: 
+                    run = 1
+                    print(slug)
+                    notebook_code = solve_competition_keras(
+                        slug = slug,
+                        structured_csv= "notebooks_structured.csv",
+                        top_k         = top_k
+                    )
+                    out_path = Path(f"test/{slug}/{slug}_solution.py")
+                    out_path.write_text(notebook_code, encoding="utf-8")
+                    print(f"[OK] Solution code written to {out_path}")
         else: 
             for slug in test: 
-                notebook_code = solve_competition_tuner(
-                    slug = slug, 
-                    simplified=simplified
-                )
-                out_path = Path(f"test/{slug}/{slug}_kt_solution.py")
-                out_path.write_text(notebook_code, encoding="utf-8")
-                print(f"[OK] Solution code written to {out_path}")
+                if run == 1 or slug == comp: 
+                    run = 1
+                    print(slug)
+                    notebook_code = solve_competition_tuner(
+                        slug = slug, 
+                        simplified=simplified
+                    )
+                    out_path = Path(f"test/{slug}/{slug}_kt_solution.py")
+                    out_path.write_text(notebook_code, encoding="utf-8")
+                    print(f"[OK] Solution code written to {out_path}")
 
 
     elif cmd == "followup":
@@ -118,7 +128,7 @@ if __name__ == "__main__":
             print(f"[ERROR] {e}")
             sys.exit(1)
 
-        orig = Path(str(slug))
+        orig = Path("test/"+str(slug)+"/"+str(slug))
         fixed = orig.with_name(orig.stem + "_fixed.py")
         fixed.write_text(corrected_code, encoding="utf-8")
         print(f"[OK] Corrected code written to {fixed}")

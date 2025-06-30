@@ -7,13 +7,17 @@ from utils import extract_tabular, download_train_file
 from typing import List, Dict, Optional
 import openai
 
+from collections import defaultdict
 from config import OPENAI_MODEL,kaggle_api
 from selenium_helper import init_selenium_driver
 from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab, describe_schema, compact_profile_for_llm,select_hyperparameter_profile
 from similarity import find_similar_ids
 from prompts import generate_keras_schema,structure_and_label_competition_schema,generate_tuner_schema
-from config import kaggle_api
+from config import kaggle_api, MAX_CLASSES, MAX_FEATURES
 from tuner_bank import HYPERPARAMETER_BANK
+
+
+
 
 def normalize_kernel_ref(ref: str) -> str:
     """
@@ -90,6 +94,76 @@ def list_files(slug : str) -> List[str]:
 
 
 
+def postprocess_code(code):
+    if code.startswith("<Code>") and code.endswith("</Code>"):
+        code = code[len("<Code>"):-len("</Code>")].strip()
+
+    # If it's a single line with visible \n, but no actual newlines
+    if "\\n" in code and "\n" not in code:
+        # 1. Try to parse as JSON string literal (most robust, if code is surrounded by quotes)
+        try:
+            code_candidate = json.loads(code)
+            # If it looks like code, take it
+            if "import" in code_candidate or "def " in code_candidate:
+                return code_candidate
+        except Exception:
+            pass
+        # 2. Try ast.literal_eval
+        try:
+            code_candidate = ast.literal_eval(code)
+            if isinstance(code_candidate, str):
+                return code_candidate
+        except Exception:
+            pass
+        # 3. Fallback: decode unicode escapes
+        try:
+            code = code.encode("utf-8").decode("unicode_escape")
+        except Exception:
+            pass
+
+    return code
+
+def compact(comp_struct):
+        raw_targets = comp_struct["target_column"]
+
+        suffix_pat = re.compile(r"^(.+?)(\d+)$")
+
+        parsed = []
+        literal_targets = []
+
+        for t in raw_targets:
+            m = suffix_pat.match(t)
+            if m:
+                prefix, idx_str = m.group(1), m.group(2)
+                try:
+                    idx = int(idx_str)
+                except ValueError:
+                    literal_targets.append(t)
+                    continue
+                parsed.append((prefix, idx))
+            else:
+                literal_targets.append(t)
+
+        # group parsed by prefix
+        groups = defaultdict(list)
+        for prefix, idx in parsed:
+            groups[prefix].append(idx)
+
+        # build range specs
+        range_specs = []
+        for prefix, idxs in groups.items():
+            lo, hi = min(idxs), max(idxs)
+            range_specs.append({
+                "prefix":    prefix,
+                "min_index": lo,
+                "max_index": hi,
+                "count":     len(idxs)
+            })
+
+        return range_specs
+
+
+    
 """
     Initial prompt for Keras  
 """
@@ -125,6 +199,7 @@ def solve_competition_keras(
     print(comp_struct["files_list"])
     print(comp_struct["training_files"])
     print("----------------")
+
     downloaded_paths = download_train_file(
         comp_meta["slug"],
         comp_folder,
@@ -138,18 +213,22 @@ def solve_competition_keras(
         source_path=str(p),
         target_column=comp_struct["target_column"]
         )
-
         # 2) collapse both the schema and the target_summary if they are too big
         compacted = compact_profile_for_llm(
             prof,
-            max_features=50,    # collapse runs if > n features
-            max_classes=50       # keep top n classes per target
+            max_features=MAX_FEATURES,    # collapse runs if > n features
+            max_classes=MAX_CLASSES      # keep top n classes per target
         )
 
         all_schemas[p.name] = compacted
 
 
     comp_struct["data_profiles"] = all_schemas
+
+    range_specs = None
+    if len(comp_struct["target_column"]) <= MAX_CLASSES:    
+        range_specs = compact(comp_struct) 
+        comp_struct["target_column_ranges"] = range_specs
 
     desc_path = Path(f"{comp_folder}/{slug}_desc.json")
     desc_path.write_text(json.dumps(comp_struct, ensure_ascii=False, indent=2), encoding="utf-8")  
@@ -172,15 +251,15 @@ def solve_competition_keras(
         examples.append((rank, kr, score, prep_steps, layer_code))
 
 
+
     payload = {
         "competition_slug":                 slug,
         "competition_problem_description":  comp_struct["competition_problem_description"],
         "competition_problem_type":         comp_struct["competition_problem_type"],
         "competition_problem_subtype":      comp_struct["competition_problem_subtype"],
         "dataset_metadata":                 comp_struct["dataset_metadata"],
-        "data_profiles":                    all_schemas,
+        "data_profiles":                    comp_struct["data_profiles"],
         "files_preprocessing_instructions": comp_struct["files_preprocessing_instructions"],
-        "target_columns":                    comp_struct["target_column"], 
         "training_files":                   comp_struct["training_files"],
         "all_files":                        all_files,
         "examples":                         [
@@ -192,15 +271,20 @@ def solve_competition_keras(
               "model_layers_code":   layers
             }
             for (rank, kr, sc, prep, layers) in examples
-        ],
+        ]
     }
+
+    if len(comp_struct["target_column"]) <= MAX_CLASSES:
+        payload["target_columns"] = comp_struct["target_column"]
+    else:
+        payload["target_column_ranges"] = range_specs
 
     system_msg = {
         "role": "system",
         "content": (
             "You are a world-class deep learning engineer and data scientist.  "
-            "When called, generate only runnable Python code wrapped in <Code>…</Code>."
-            "Emit ONLY a single JSON object with exactly one field: notebook_code"
+            "do not emit plain text.  Populate *only* its `notebook_code` argument "
+            "(no other keys)."  
         )
     }
 
@@ -220,10 +304,8 @@ def solve_competition_keras(
     msg    = response.choices[0].message
     result = json.loads(msg.function_call.arguments)
     code   = result["notebook_code"]
-    if code.startswith("<Code>") and code.endswith("</Code>"):
-        code = code[len("<Code>"):-len("</Code>")].strip()
-    
-    return code 
+
+    return postprocess_code(code) 
 
 
 def solve_competition_tuner(slug: str, simplified: bool = 0) -> str:
@@ -233,12 +315,12 @@ def solve_competition_tuner(slug: str, simplified: bool = 0) -> str:
     # load the existing keras solution
     existing_solution_code = (base / f"{slug}_solution.py").read_text(encoding="utf-8")
 
-    # 1) Select the best‐matching profile key:
-    profile_key = select_hyperparameter_profile(comp_struct, HYPERPARAMETER_BANK)
-    # 2) Pull out that single profile dict:
-    chosen_profile = HYPERPARAMETER_BANK[profile_key]
-
     if simplified == 1:
+        # 1) Select the best‐matching profile key:
+        profile_key = select_hyperparameter_profile(comp_struct, HYPERPARAMETER_BANK)
+        # 2) Pull out that single profile dict:
+        chosen_profile = HYPERPARAMETER_BANK[profile_key]
+        print(chosen_profile)
         hp_payload = chosen_profile
     else:
         hp_payload = HYPERPARAMETER_BANK
@@ -250,11 +332,16 @@ def solve_competition_tuner(slug: str, simplified: bool = 0) -> str:
         "competition_problem_subtype":     comp_struct["competition_problem_subtype"],
         "dataset_metadata":                comp_struct["dataset_metadata"],
         "data_profiles":                   comp_struct["data_profiles"],
-        "training_files":                  comp_struct["training_files"],
-        "all_files":                       comp_struct["all_files"],
         "existing_solution_code":          existing_solution_code,
         "hyperparameter_bank":             hp_payload
     }
+
+    range_specs = compact(comp_struct) 
+
+    if len(comp_struct["target_column"]) <= MAX_CLASSES:
+        payload["target_columns"] = comp_struct["target_column"]
+    else:
+        payload["target_column_ranges"] = range_specs
 
     system_msg = {
         "role": "system",
@@ -280,11 +367,8 @@ def solve_competition_tuner(slug: str, simplified: bool = 0) -> str:
     msg       = response.choices[0].message
     args      = json.loads(msg.function_call.arguments)
     tuner_code = args["tuner_code"]
-
-    if tuner_code.startswith("<Code>") and tuner_code.endswith("</Code>"):
-        tuner_code = tuner_code[len("<Code>"):-len("</Code>")].strip()
-
-    return tuner_code
+    
+    return postprocess_code(tuner_code)
 
 
 """
@@ -296,7 +380,7 @@ def followup_prompt(
     kt: bool
 ) -> str:
 
-    solution_path = f"{slug}{'_kt' if kt else ''}_solution.py"
+    solution_path = f"test/{slug}/{slug}{'_kt' if kt else ''}_solution.py"
 
     path = Path(solution_path)
     if not path.exists():

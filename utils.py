@@ -294,7 +294,7 @@ def _collapse_schema_runs(schema: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
         if len(run) == 1:
             f = run[0]
             collapsed.append({
-                "columns":     f["name"],
+                "name":     f["name"],
                 "type":        t,
                 "missing_pct": f.get("missing_pct"),
                 "is_target":   f.get("is_target", False)
@@ -303,7 +303,7 @@ def _collapse_schema_runs(schema: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
             start, end = run[0]["name"], run[-1]["name"]
             missing_avg = round(sum(f.get("missing_pct",0) for f in run) / len(run), 2)
             collapsed.append({
-                "columns":     f"{start}–{end} ({len(run)} cols)",
+                "name":     f"{start}–{end} ({len(run)} cols)",
                 "type":        t,
                 "missing_pct": missing_avg,
                 "is_target":   any(f.get("is_target", False) for f in run)
@@ -431,52 +431,71 @@ def download_train_file(slug: str, path, files_list: List[str]) -> List[Path]:
     return local_paths
 
 
-#Fast Keras Tuner blueprint selection, might pick if the model token limit is exceeded with the full hyperparameter bank
 def select_hyperparameter_profile(comp_meta, hyperparameter_bank):
     """
-    comp_meta is a dict containing at least:
-      - "competition_problem_type": e.g. "classification" or "regression"
-      - "competition_problem_subtype": e.g. "binary", "multiclass", "time-series", etc.
-      - "data_profiles": a dict mapping filenames to schema summaries,
-          from which you can infer modality and feature count.
-      - (Optionally) "dataset_metadata": free‐text hints you can keyword‐search.
-    hyperparameter_bank is your HYPERPARAMETER_BANK dict.
+    comp_meta is a dict containing:
+      - "competition_problem_type"
+      - "competition_problem_subtype"
+      - "data_profiles": filename → {
+            "dataset_schema": [ {name, type, …}, … ],
+            …
+        }
     """
-    # 1. Build a set of metadata tags
-    tags = set()
-    tags.add(comp_meta["competition_problem_type"])
-    tags.add(comp_meta["competition_problem_subtype"])
-    
-    # Infer modality from data_profiles:
+    # Build metadata tags
+    tags = {
+        comp_meta["competition_problem_type"],
+        comp_meta["competition_problem_subtype"],
+    }
+
+    # Take one profile to infer modality/feature count
     sample_profile = next(iter(comp_meta["data_profiles"].values()))
-    if any(coltype.startswith("object") or colname.lower().endswith(("text","comment"))
-           for colname, coltype in sample_profile["columns"].items()):
+
+    # **Convert** the list-of-dicts into a dict: name → type
+    columns = {
+        entry["name"]: entry["type"]
+        for entry in sample_profile.get("dataset_schema", [])
+    }
+
+    # 1) modality tag
+    if any(
+        t.startswith("object") or n.lower().endswith(("text", "comment"))
+        for n, t in columns.items()
+    ):
         tags.add("text")
-    elif any(coltype in ("image_path","filepath") for coltype in sample_profile["columns"].values()):
+    elif any(t in ("image_path", "filepath") for t in columns.values()):
         tags.add("image")
-    elif any(coltype.startswith("datetime") for coltype in sample_profile["columns"].values()):
+    elif any(t.startswith("datetime") for t in columns.values()):
         tags.add("time-series")
     else:
         tags.add("tabular")
-    
-    # Estimate feature count
-    n_feats = len(sample_profile["columns"]) - len(comp_meta["target_columns"])
+
+    # 2) feature‐count tag (subtract targets)
+    n_feats = len(columns) - len(comp_meta.get("target_column", []))
     if n_feats < 10:
         tags.add("low_features")
     elif n_feats < 500:
         tags.add("medium_features")
     else:
         tags.add("high_features")
-    
-    # Missing‐value hint
-    if sample_profile.get("missing_count", 0) > 0:
+
+    # 3) missing‐values tag
+    # your schema uses "missing_pct" per column
+    if any(
+        entry.get("missing_pct", 0) > 0
+        for entry in sample_profile.get("dataset_schema", [])
+    ):
         tags.add("missing-values")
-    
-    # 2. Score each profile by tag overlap
+
+    # Score each profile
     best_key, best_score = None, -1
     for key, prof in hyperparameter_bank.items():
         score = len(tags & set(prof["tags"]))
         if score > best_score:
             best_key, best_score = key, score
-    
+
+
+    print(comp_meta["competition_problem_type"])
+    print(comp_meta["competition_problem_subtype"]) 
+    print(best_key) 
+
     return best_key
