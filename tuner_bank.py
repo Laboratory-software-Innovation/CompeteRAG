@@ -1,24 +1,25 @@
 HYPERPARAMETER_BANK = {
   "synthetic_mlp": {
     "tags": ["classification","multiclass","tabular","low_features"],
-    "description": "Toy MLP on 2–5 features",
+    "description": "Scaled MLP on 2–5 features for larger datasets",
     "params": {
-      "layers":        {"type":"int",   "min":1,   "max":4,  "step":1},
-      "units":         {"type":"int",   "min":50,  "max":100,"step":25},
-      "activation":    {"type":"choice","values":["relu","tanh"]},
-      "dropout":       {"type":"float", "min":0.0,  "max":0.3, "step":0.1},
-      "optimizer":     {"type":"choice","values":["adam","rmsprop"]},
-      "learning_rate": {"type":"float", "min":1e-4,  "max":1e-3,"sampling":"log"},
-      "batch_size":    {"type":"choice","values":[16,32,64,128,256,512]},
-      "epochs":        {"type":"int",   "min":10,   "max":35, "step":5},
+      "layers":        {"type":"int","min":2,"max":8,"step":1},
+      "units":         {"type":"int","min":64,"max":1024,"step":64},
+      "activation":    {"type":"choice","values":["relu","tanh","selu"]},
+      "dropout":       {"type":"float","min":0.0,"max":0.5,"step":0.1},
+      "optimizer":     {"type":"choice","values":["adam","rmsprop","sgd"]},
+      "learning_rate": {"type":"float","min":1e-5,"max":1e-2,"sampling":"log"},
+      "batch_size":    {"type":"choice","values":[32,64,128,256,512,1024]},
+      "epochs":        {"type":"int","min":20,"max":200,"step":10}
     },
     "advice": [
-      "Automatic tuning finds strong baselines on clean synthetic data, but watch for overfitting as you scale to real data.",
-      "If performance plateaus early, try adding dropout up to 0.3 or reducing learning rate by an order of magnitude.",
-      "For very small feature counts (<5), smaller batch sizes (16–32) often generalize better."
+      "For low-dimensional data but large samples, start with moderate batch sizes (128–512) and tune up if GPU memory allows.",
+      "Deeper nets (4–8 layers) can capture complex feature interactions—use SELU with AlphaDropout if you go deep.",
+      "Use learning-rate search on a log scale from 1e-5 to 1e-2 to find stability vs. convergence trade-offs."
     ],
-    "source": "Shawki et al. SPMB 2021"
+    "source": "Adapted from the Keras Tuner Guide (https://keras.io/keras_tuner/)"
   },
+
 
   "tabular_classification": {
     "tags": ["classification","binary","tabular","medium_features"],
@@ -65,28 +66,6 @@ HYPERPARAMETER_BANK = {
     "source": "Rogachev & Melikhova IOP EES 2020"
   },
 
-  "image_convnet": {
-    "tags": ["classification","image","binary","multiclass","medium_features"],
-    "description": "ConvNet on 512×512 patches",
-    "params": {
-      "filters":       {"type":"int","min":16,"max":64,"step":16},
-      "kernel_size":   {"type":"choice","values":[3,5]},
-      "pool_size":     {"type":"choice","values":[2,3]},
-      "dense_units":   {"type":"int","min":64,"max":128,"step":32},
-      "dropout":       {"type":"float","min":0.25,"max":0.5,"step":0.05},
-      "optimizer":     {"type":"choice","values":["adam","sgd"]},
-      "learning_rate": {"type":"float","min":1e-4,"max":1e-3,"sampling":"log"},
-      "batch_size":    {"type":"choice","values":[8,16,32]},
-      "epochs":        {"type":"int","min":10,"max":35,"step":5},
-    },
-    "advice": [
-      "Automatic tuning may underperform on noisy real-world images—consider adding data augmentation outside the tuner.",
-      "Dropout of 0.25–0.5 after dense layers helps, but adding BatchNormalization can sometimes yield better stability.",
-      "When in doubt, fix batch_size to 32 and focus on tuning filters and learning rate first."
-    ],
-    "source": "Shawki et al. (cancer images)"
-  },
-
   "ts_lstm_cnn": {
     "tags": ["classification","time-series","binary","medium_features"],
     "description": "EEG seizure vs. background detection",
@@ -111,25 +90,25 @@ HYPERPARAMETER_BANK = {
 
   "regression_mlp": {
     "tags": ["regression","tabular","low_features","medium_features"],
-    "description": "Generic regression MLP",
+    "description": "Scaled MLP for regression on low-dimensional tabular data",
     "params": {
-      "layers":        {"type":"int","min":2,"max":6,"step":1},
-      "units":         {"type":"int","min":64,"max":512,"step":64},
-      "activation":    {"type":"choice","values":["relu","tanh","selu"]},
-      "dropout":       {"type":"float","min":0.0,"max":0.5,"step":0.1},
-      "optimizer":     {"type":"choice","values":["adam","rmsprop","sgd"]},
-      "learning_rate": {"type":"float","min":1e-4,"max":1e-2,"sampling":"log"},
-      "batch_size":    {"type":"choice","values":[64,128,256,512]},
-      "epochs":        {"type":"int","min":10,"max":50,"step":5},
+      "layers":            {"type":"int",   "min":2,    "max":8,   "step":1},
+      "units":             {"type":"int",   "min":64,   "max":1024,"step":64},
+      "activation":        {"type":"choice","values":["relu","tanh","selu"]},
+      "dropout":           {"type":"float", "min":0.0,   "max":0.5,  "step":0.1},
+      "optimizer":         {"type":"choice","values":["adam","rmsprop","sgd"]},
+      "learning_rate":     {"type":"float", "min":1e-5,  "max":1e-2,"sampling":"log"},
+      "batch_size":        {"type":"choice","values":[32,64,128,256,512,1024]},
+      "epochs":            {"type":"int",   "min":20,   "max":200, "step":10},
       "output_activation": {"type":"choice","values":["linear"]},
-      "loss":              {"type":"choice","values":["mse","mae"]}
+      "loss":              {"type":"choice","values":["mse","mae","huber"]}
     },
     "advice": [
-      "For regression, monitor both MAE and MSE; sometimes a slightly higher MSE but lower MAE indicates better robustness to outliers.",
-      "Scale your targets (e.g. StandardScaler) before training if they have large variance—this can stabilize learning rates.",
-      "If you see vanishing gradients, switch activation from ReLU to SELU with appropriate AlphaDropout."
+      "Use a linear output activation and MSE or Huber loss for smooth regression targets.",
+      "For deeper networks (≥6 layers), SELU + AlphaDropout can help maintain self-normalizing activations.",
+      "Tune learning rate on a log scale (1e-5 to 1e-2) and use moderate batch sizes (128–512) for stable convergence."
     ],
-    "source": "Adapted from Shawki et al. (classification scaffold)"
+    "source": "Adapted from the Keras Tuner Guide (https://keras.io/keras_tuner/)"
   }
 
 }
