@@ -142,7 +142,7 @@ structure_and_label_competition_schema = {
         "Given raw Kaggle competition metadata, dataset metadata and a list of files, "
         "return exactly the following fields as JSON:\n"
         "  - competition_problem_type (\"regression\" or \"classification\")\n"
-        "  - competition_problem_subtype (lower-case, hyphenated phrase describing the subtype)\n"
+        "  - competition_problem_subtype (lower-case, single, concise, lowercase‐and‐hyphenated phrase (e.g. “binary classification”, “multiclass classification”, “multi-label classification”, “time-series forecasting”, “continuous regression”, “ordinal regression”, etc. or any other that fits.)\n"
         "  - competition_problem_description (dense, non-repetitive description of the goal)\n"
         "  - dataset_metadata (plain-English paragraph rewrite of the original)\n"
         "  - competition_dataset_type (one of: Tabular, Time-series, Text, Image, Audio, Video, Geospatial, Graph, Multimodal)\n"
@@ -150,6 +150,7 @@ structure_and_label_competition_schema = {
         "  - files_list (the raw file names discovered on the data tab)\n"
         "  - all_files - All files used for the competition available for download, may not include all of them\n"
         "  - training_files (subset of files_list to load as training tables)\n"
+        "  - submission_files - submission guide/example file `\n"                
         "  - files_preprocessing_instructions (plain-English instructions to prep those files)\n"
         "No extra keys, no prose—just that JSON object."
     ),
@@ -162,7 +163,7 @@ structure_and_label_competition_schema = {
             },
             "competition_problem_subtype": {
                 "type": "string",
-                "description": "Specific problem subtype, lower-case and hyphenated"
+                "description": "Specific problem subtype, dense phrase describing the subtype(e.g binary-classification, multiclass-classification, multilabel classification, missing-value, time-series, etc"
             },
             "competition_problem_description": {
                 "type": "string",
@@ -195,7 +196,11 @@ structure_and_label_competition_schema = {
             "training_files": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "**Based on the files_list, all_files, and dataset_metadata, give  an array of exact names of all training tabular files that need to be downloaded, ensure that the listed files in the dataset_metadata correspond to the ones in files_list, if not go with the file most similar in the files_list"
+                "description": "**Based on the files_list, all_files, and dataset_metadata, give  an array of exact names of all training tabular files that need to be downloaded, ensure that the listed files in the dataset_metadata correspond to the ones in files_list, if not go with the files most similar in the files_list"
+            },
+            "submission_file": {
+                "type": "string",
+                "description": "**Based on the files_list, all_files, and dataset_metadata, give  an exact name of the submission example file that needs to be downloaded, ensure that the listed file in the dataset_metadata correspond to the one in files_list, if not go with the file most similar in the files_list"
             },
             "files_preprocessing_instructions": {
                 "type": "string",
@@ -212,6 +217,7 @@ structure_and_label_competition_schema = {
             "files_list",
             "all_files",
             "training_files",
+            "submission_file", 
             "files_preprocessing_instructions"
         ]
     }
@@ -223,31 +229,7 @@ structure_and_label_competition_schema = {
 generate_keras_schema = {
         "name": "generate_keras_schema",   
         "description": (
-            "***Generate and save a runnable Python code wrapped in <Code>…</Code> in the `notebook_code` json field:\n"
-            "  - Every backslash (`\\`) in your code must be escaped as `\\\\`, every double‐quote (`\"`) inside your code must be escaped as `\\\"`, and every newline as `\\n`\n"
-            "  - Ensure that the code you emit is **syntactically valid Python**:\n"  
-            "  - Every `import` must be on its own line. \n "
-            "  - Use consistent 4-space indentation for all blocks.\n"  
-            "  - All parentheses `()`, brackets `[]` and braces `{}` must be balanced and preserved.\n"
-            "Given:\n"
-            "  - `competition_slug`: the Kaggle competition slug,\n"
-            "  - `competition_problem_description`: Dense competition problem description,\n"
-            "  - `competition_problem_type`: Classification|Regression,\n"
-            "  - `competition_problem_description`: Specifies the subtype of the problem,\n"
-            "  - `dataset_metadata`: Full NLP explanation of the dataset, the columns that need to be predicted and the training files provided,\n"
-            "  - `data_profiles`: compacted schema & target summaries for each file,\n"
-            "  - `files_preprocessing_instructions`: suggested data–prep steps,\n"
-            "  - `target_columns`: (optional) List of one or more exact column names to predict, if there are only a few targets.\n"
-            "  - `target_column_ranges`: (optional) A compact array of `{prefix, min_index, max_index}` objects used when there are many targets sharing numeric suffixes.  Your code should reconstruct:\n"
-            "      ```python\n"
-            "      target_cols = []\n"
-            "      for spec in target_column_ranges:\n"
-            "          p, lo, hi = spec[\"prefix\"], spec[\"min_index\"], spec[\"max_index\"]\n"
-            "          target_cols = [f\"{p}{i}\" for i in range(lo, hi1)]\n"
-            "      ```\n"
-            "  - `training_files`: list of one or more CSV/TSV files to read,\n"
-            "  - `all_files`: list of all files included in the competition, decide whether there are testing files and whether you need to split the training dataset,\n"        
-            "  - `examples`: top-K example kernels for inspiration,\n"
+            "***Generate and save a runnable Python code wrapped in <Code>…</Code> in a singe `notebook_code` json field:\\n"  
             "The generated code must implement:\n"
             "0. **Target encoding**: after reading the dataset and before any split,\n"
             "   use `LabelEncoder().fit(y)` → `y_enc = le.transform(y)` and keep `le.classes_` for later.\n"
@@ -299,35 +281,45 @@ generate_keras_schema = {
             "    - For multiclass (single target), use argmax for class labels and write integer class indices or decoded labels as expected.\n"
             "    - For regression, output the predicted values as-is (do not round or threshold).\n"
             "14. Load the test data by reading the testing files into a DataFrame.\n"
-            "15. Extract the ID column (id_col) and save it as ids_test.\n"
-            "16. Remove any remaining target columns so only feature columns remain.\n"
-            "17. Apply the preprocessing pipeline (preprocessor) to transform the feature DataFrame.\n"
-            "18. Use the model to predict on the preprocessed test features and store the predictions.\n"
-            "19. Create the submission DataFrame from the predictions, naming columns after the targets.\n"
-            "20. Insert ids_test as the first column of the submission DataFrame.\n"
-            "21. Write the submission DataFrame to 'submission_result.csv' without row indices."
-            "22. **Always include the test prediction and submission code at the end, loading 'test.csv', predicting with 'best_model', and saving to 'submission_result.csv'. Use 'id' and the correct target column(s)."
-            "23. **If there are multiple target columns, save each column in the submission DataFrame as required.\n"
+            "15. Copy the ID column (`id_col`) from the test DataFrame and save it as `ids_test` (**never** drop the `id` column).\n"  
+            " 16. Remove target columns but keep the ID column\n"
+            "if using_provided_test_file then\n"
+            "    # provided test.csv has no targets → safe no-op drop\n"
+            "    features_df ← test_df.drop(columns=target_columns, ignore_missing=True)\n"
+            "else\n"
+            "    # split-from-single-file scenario → remove original target columns\n"
+            "    features_df ← test_df.drop(columns=target_columns)\n"
+            "end if\n"
+            "# ensure id_col remains in features_df at all times\n"
+            "16. Apply the preprocessing pipeline (`preprocessor.transform`) to the feature-only DataFrame to produce `X_test_proc`.\n"  
+            "17. Feed `X_test_proc` into your trained model to obtain raw predictions (`raw_preds`).\n"  
+            "18. Build the submission DataFrame:\n"  
+            "    – If there is **one** target column, threshold or map `raw_preds` directly into that column alongside `ids_test`.\n"  
+            "    – If there are **multiple** target columns, convert `raw_preds` into a table with those column names, then append `ids_test` under `id_col`.\n"  
+            "19. Reorder the submission DataFrame so that `ids_test` (under `id_col`) is the first column.\n"  
+            "20. Write the submission DataFrame to `'submission_result.csv'` without row indices.\n"  
+            "21. **Place this block at the end of your notebook**—after loading either the provided `'test.csv'` or your split DataFrame, predicting with `best_model`, and running these steps to generate and save the final CSV with the correct `id` and target column(s).**\n"  
+            "22. **If multiple target columns exist, verify that each appears as its own column in `submission_result.csv`.**\n"  
+
         ),
         "parameters": {
             "type": "object",
             "additionalProperties": False,
             "properties": {
-                "competition_slug": {
-                    "type": "string",
-                    "description": "The Kaggle competition slug."
-                },
                 "competition_problem_description": {
                     "type": "string",
                     "description": "Dense competition description giving the core goal."
                 },
-                "competition_problem_type": {
-                    "type": "string",
-                    "description": "Classification|Regression"
-                },
                 "competition_problem_subtype": {
                     "type": "string",
-                    "description": "Specifies the subtype of the problem"
+                    "description": (
+                    "Specifies the subtype of the problem,\n\
+                    When preparing the submission, handle each `competition_problem_subtype` and ensure that the values match:\n\
+                        - **binary-classification** → outputs must be 0 or 1 only integer values, ensure no probabilities .\n\
+                        - **Multiclass classification** → use `argmax` to select label index (0…K-1) or inverse-transform via `LabelEncoder`.\n\
+                        - **Multilabel classification** → threshold each probability at 0.5 to produce 0/1 per class.\n\
+                        - **Regression** → preserve raw continuous predictions.\n"
+                    )
                 },
                 "dataset_metadata": {
                     "type": "string",
@@ -335,42 +327,27 @@ generate_keras_schema = {
                 },
                 "data_profiles": {
                     "type": "object",
-                    "description": (
-                        "A mapping filename → compacted schema & target summary, "
-                        "as returned by compact_profile_for_llm."
-                    )
+                    "description": "A mapping filename → dataset schema & target summary of each file provided in the competition "
                 },
                 "files_preprocessing_instructions": {
                     "type": "string",
                     "description": "Instructions for how to preprocess the raw files."
                 },
-                "target_columns": {
-                "type": "array",
-                "description": "If there are many targets, group them by prefix+index ranges instead of listing each.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                    "prefix":     { "type": "string",  "description": "Common prefix of these target columns, e.g. 'start.'"},
-                    "min_index":  { "type": "integer", "description": "Lowest numeric suffix seen"},
-                    "max_index":  { "type": "integer", "description": "Highest numeric suffix seen"},
-                    "count":      { "type": "integer", "description": "How many columns in this range"}
-                    },
-                    "required": ["prefix","min_index","max_index"]
-                }
+                "submission_example": {
+                    "type": "string", 
+                    "description": (  
+                        "Contains the target columns ***not including the id column*** that need to be predicted and the example format of columns and values that needs to be outputted to the submission_results.csv`\n\
+                        Rely on the `submission_example` for how to format the sumbission and pay attentiton for what types of values there are\n"                
+                    )
                 },
-                "training_files": {
+                "files_list": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of all training‐set filenames to read."
-                },
-                "all_files": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of all files include in the competition, including training and testing files"
+                    "description": " list of all files included in the competition, decide whether there are testing files and whether you need to split the training dataset"
                 },
                 "examples": {
                     "type": "array",
-                    "description": "Top‐K similar kernels for inspiration.",
+                    "description": "Retrieved preprocessing and code snippets from solutions of top similar competitions, rely on them",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -385,9 +362,10 @@ generate_keras_schema = {
                         "required":["kernel_ref","score","preprocessing_steps","model_layers_code"]
                     }
                 },
+
                 "notebook_code": {
                     "type": "string",
-                    "description": "***The complete runnable Python code wrapped in <Code>…</Code>, saved as an output.***"
+                    "description": "***The complete runnable Python code wrapped in <Code>…</Code>, saved in the `notebook_code` json field.***"
                 }
             },
             "required": [
@@ -414,25 +392,24 @@ generate_tuner_schema = {
             "  - `competition_problem_description`: Specifies the subtype of the problem,\n"
             "  - `dataset_metadata`: Full NLP explanation of the dataset, the columns that need to be predicted and the training files provided,\n"
             "  - `data_profiles`: compacted schema & target summaries for each file,\n"
-            "  - `existing_solution_code`: the text of the working Keras solution,\n"      
-            "  - `hyperparameter_bank`: an object containing a predefined profile for this subtype of model\n"   
             "  - Emit ONLY a single JSON object with exactly one field: "
             "  - ***`tuner_code`: a string containing the **full** runnable Python notebook code wrapped in `<Code>…</Code>`\n"
             "  - This must include **all** original data loading, preprocessing, model definition, callbacks, training, **and** the Keras-Tuner integration (imports, HyperModel wrapper, tuner setup, search, and best_model rebuild), as well as final evaluation and `submission.to_csv`.\n"        "    (including imports, HyperModel subclass, tuner setup, search, and final retrain)\n"
             "  - Keep the structure the same as the original Keras code, including the training timing, saving the result into a submission file \n"
         "   0.1. Use `chosen_profile[\"params\"]` to drive every `hp.*` call below.\n" 
         "***IMPORTANT CODING RULES:***\n"
-        "  - First, select `hyperparameter_bank` by comparing each bank-entry’s `tags` to `competition_problem_type`, `competition_problem_subtype`, and whether the data is tabular/text/image.\n"
-        "  - You must only use hyperparameters defined in `hyperparameter_bank.params`.  For each key in `hyperparameter_bank.params`, generate exactly one `hp.*(...)` call _inside_ `build(self, hp)`.\n"
-        "  - Map each param name to its correct `hp.Int` / `hp.Float` / `hp.Choice` signature, preserving min/max/step/log/values exactly.\n"
-        "  - NEVER call `hp.*` or `kt.HyperParameters()` anywhere else in the code.\n"
-        "  - In `tuner.search(...)`, pass **literal** `batch_size` and `epochs` values drawn from `chosen_profile.params.batch_size` and `.epochs`, but **do not** call `hp.*` there.\n"
-        "  - Do not introduce any new hyperparameters or omit any from `chosen_profile.params`.\n"
-        "  - All variable names (e.g. `X_train_proc`, `early_stopping`, etc.) must match the original Keras code exactly.\n"
-        "  - The final generated code must be valid Python and runnable end‐to‐end with no missing variables or undefined names.\n"
-        "   - DO NOT rename variables—match the exact names used in the provided Keras code.\n"
-        "  - This guarantees that `hp` is only referenced inside `build(self, hp)` and never in the `search` call.\n"
-        "\n"
+            "  - First, select `hyperparameter_bank` by comparing each bank-entry’s `tags` to `competition_problem_type`, `competition_problem_subtype`, and whether the data is tabular/text.\n"
+            "  - Use the model layers, compile, and fit, provided by the `hyperparameter_bank` if they fit better than the original Keras code layers \n" 
+            "  - You must only use hyperparameters defined in `hyperparameter_bank.params`.  For each key in `hyperparameter_bank.params`, generate exactly one `hp.*(...)` call _inside_ `build(self, hp)`.\n"
+            "  - Map each param name to its correct `hp.Int` / `hp.Float` / `hp.Choice` signature, preserving min/max/step/log/values exactly.\n"
+            "  - NEVER call `hp.*` or `kt.HyperParameters()` anywhere else in the code.\n"
+            "  - In `tuner.search(...)`, pass **literal** `batch_size` and `epochs` values drawn from `chosen_profile.params.batch_size` and `.epochs`, but **do not** call `hp.*` there.\n"
+            "  - Do not introduce any new hyperparameters or omit any from `chosen_profile.params`.\n"
+            "  - All variable names (e.g. `X_train_proc`, `early_stopping`, etc.) must match the original Keras code exactly.\n"
+            "  - The final generated code must be valid Python and runnable end‐to‐end with no missing variables or undefined names.\n"
+            "   - DO NOT rename variables—match the exact names used in the provided Keras code.\n"
+            "  - This guarantees that `hp` is only referenced inside `build(self, hp)` and never in the `search` call.\n"
+            "\n"
         "# TUNER INTEGRATION (replace original build & fit):\n"
         "1. Add `import keras_tuner as kt` alongside existing imports.\n"
         "2. Wrap your existing `build_model(...)` in:\n"
@@ -488,12 +465,24 @@ generate_tuner_schema = {
             "competition_problem_description":  {"type": "string"},
             "competition_problem_type":         {"type": "string"},
             "competition_problem_subtype":      {"type": "string"},
-            "dataset_metadata":                 {"type": "string"},
-            "data_profiles":                    {"type": "object"},
-            "existing_solution_code":           {"type": "string"},
+            "dataset_metadata":                 
+            {
+                "type": "string"
+                "description"
+            },
+            "data_profiles":                    
+            {
+                "type": "object",
+                "description": "A mapping filename → dataset schema & target summary of each file provided in the competition "
+            },
+            "existing_solution_code":           
+            {
+                "type": "string",
+                "description": "Contains an existing Keras solution that should be used to build the Keras Tuner model"
+            },
             "hyperparameter_bank": {
                 "type": "object",
-                "description": "A map from profile name → hyperparameter profile.  Each profile has `tags`, `description`, `params`, `advice`, and `source`.",
+                "description": "A map from profile name → hyperparameter profile.  Each profile has `tags`, `description`, `params`, `advice`, and `source`, containing a predefined profile for this subtype of model",
                 "additionalProperties": {
                     "type": "object",
                     "required": ["tags","description","params"],
@@ -550,6 +539,7 @@ generate_tuner_schema = {
 
 
 """
+Old schema -> leads to needle in a haystack problem
 generate_keras_schema = {
         "name": "generate_keras_schema",   
         "description": (
@@ -733,4 +723,56 @@ generate_keras_schema = {
             ]
         }
     }
+"""
+
+"""
+"***Generate and save a runnable Python code wrapped in <Code>…</Code> in a singe `notebook_code` json field:\\n"  
+            "Your code must:\n\
+                1. Seed Python, NumPy, scikit-learn, and TF/PyTorch for reproducibility.\n\
+                2. Import on separate lines:\n\
+                pandas\n\
+                numpy\n\
+                train_test_split\n\
+                SimpleImputer\n\
+                ColumnTransformer\n\
+                StandardScaler\n\
+                OneHotEncoder\n\
+                Pipeline\n\
+                tensorflow (or torch)\n\
+                Sequential (from tensorflow.keras.models)\n\
+                Model (from tensorflow.keras.models)\n\
+                tf.keras.applications (e.g. ResNet50, VGG16)\n\
+                EarlyStopping\n\
+                ModelCheckpoint\n\
+                json\n\
+                time\n\
+               3. Load and split data:\n\
+                - Read `training_files`; infer/extract ID and `target_columns`; drop originals.\n\
+                - If there is exactly one target column, use\n\
+                `stratify=y_enc` in `train_test_split`.\n\
+                - Otherwise (multi-column target), set `stratify=None` to avoid sklearn’s ValueError.\n\
+                4. Encode target: single → LabelEncoder; multi → raw numpy array.\n\
+                5. Build preprocessing pipeline:\n\
+                - Numeric: median+indicator imputation → StandardScaler.\n\
+                - Categorical: most_frequent imputation → OneHotEncoder(ignore unknown).\n\
+                6. Define ANN with ≥2 hidden layers + Dropout/BatchNorm; compile with Adam, appropriate loss, and metrics.\n\
+                7. Define model (choose one approach):\n\
+                   - **Sequential**: stack layers via `Sequential([…])`.\n\
+                   - **Functional API**: use `Model(inputs, outputs)`.\n\
+                   - **Pretrained**: import from `tf.keras.applications` and fine-tune.\n\
+                   - **Subclassing**: extend `tf.keras.Model` with `call()`.\n\
+                   - **scikit-learn**: use classic estimators like `RandomForestClassifier`.\n\
+                8. Compile with Adam, appropriate loss, and metrics.\n\
+                9. Train with EarlyStopping(patience=5) and ModelCheckpoint(save_best_only), up to 100 epochs; record training time.\n\
+                10. Log: to `results.json`\n\
+                 - training loss\n\
+                 - training accuracy\n\
+                 - validation loss\n\
+                 - validation accuracy\n\
+                 - training duration \n\
+                11. Predict & submit:\n\
+                - **Load test.csv file; extract ID; preprocess; predict.\n\
+                - Threshold or argmax as needed.\n\
+                - Build DataFrame with ID first, targets next; save as `submission_result.csv` (no index).\n"
+        
 """
