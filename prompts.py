@@ -74,6 +74,17 @@ ask_structured_schema = {
             },
             "competition_problem_subtype": {
                 "type": "string",
+                    "enum": [
+                    "binary-classification",
+                    "multiclass-classification",
+                    "multi-label-classification",
+                    "time-series-forecasting",
+                    "continuous-regression",
+                    "quantile-regression",
+                    "multi-output-regression",
+                    "ordinal-regression",
+                    "missing-value-imputation"
+                ],
                 "description": "Single lowercase hyphenated phrase describing the subtype."
             },
             "competition_problem_description": {
@@ -159,11 +170,23 @@ structure_and_label_competition_schema = {
         "properties": {
             "competition_problem_type": {
                 "type": "string",
-                "description": "“regression” or “classification”"
+                "enum": ["regression", "classification"],
+                "description": "Either 'regression' or 'classification'."
             },
             "competition_problem_subtype": {
                 "type": "string",
-                "description": "Specific problem subtype, dense phrase describing the subtype(e.g binary-classification, multiclass-classification, multilabel classification, missing-value, time-series, etc"
+                "enum": [
+                    "binary-classification",
+                    "multiclass-classification",
+                    "multi-label-classification",
+                    "time-series-forecasting",
+                    "continuous-regression",
+                    "quantile-regression",
+                    "multi-output-regression",
+                    "ordinal-regression",
+                    "missing-value-imputation"
+                ],
+            "description": "Lower-case, hyphenated subtype phrase."
             },
             "competition_problem_description": {
                 "type": "string",
@@ -177,6 +200,32 @@ structure_and_label_competition_schema = {
                 "type": "string",
                 "enum": ["Tabular","Time-series","Text","Image","Audio","Video","Geospatial","Graph","Multimodal"],
                 "description": "Primary data modality"
+            },
+            "evaluation_metrics": {
+                "type": "string",
+                "description": "Pick one of the following based on the competition metadata:\n"
+                    "  - MAP@N – Mean Average Precision\n"
+                    "  - RMSLE – Root Mean Squared Logarithmic Error\n"
+                    "  - RMSE – Root Mean Squared Error\n"
+                    "  - ROC Curve\n"
+                    "  - MAPE – Mean Absolute Percentage Error\n"
+                    "  - Accuracy\n"
+                    "  - MCC – Matthews Correlation Coefficient\n"
+                    "  - R2 – Coefficient of Determination\n"
+                    "  - Log Loss\n"
+                    "  - MedAE – Median Absolute Error\n"
+                    "  - Micro-averaged F1-Score\n"
+                    "  - SMAPE – Symmetric Mean Absolute Percentage Error\n"
+                    "  - MAE – Mean Absolute Error\n"
+                    "  - Quadratic Weighted Kappa\n"
+                    "  - Adjusted Rand Index\n"
+                    "  - AUCROC\n"
+                    "  - Multi-class Log Loss\n"
+                    "  - Macro F1 Score\n"
+                    "  - F1 Score\n"
+                    "  - Multi-class classification accuracy\n"
+                    "  - Categorization accuracy\n"
+                    "  - Classification accuracy\n"
             },
             "target_column": {
                 "type": "array",
@@ -206,11 +255,13 @@ structure_and_label_competition_schema = {
                 "type": "string",
                 "description": "Based on the dataset_metadata and the files observed, write an instruction on how to preprocess(drop features, split the dataset if no testing was given etc, etc)"
             }
+            
         },
         "required": [
             "competition_problem_type",
             "competition_problem_subtype",
             "competition_problem_description",
+            "evaluation_metrics",
             "dataset_metadata",
             "competition_dataset_type",
             "target_column",
@@ -219,88 +270,149 @@ structure_and_label_competition_schema = {
             "training_files",
             "submission_file", 
             "files_preprocessing_instructions"
+            
         ]
     }
 }
 
 
-
-# llm_coding ----> solve_competition_keras
-generate_keras_schema = {
-        "name": "generate_keras_schema",   
+tools = [
+    {
+        "name": "generate_keras_schema",  
+        "type": "function",
         "description": (
             "***Generate and save a runnable Python code wrapped in <Code>…</Code> in a singe `notebook_code` json field:\\n"  
             "The generated code must implement:\n"
-            "0. **Target encoding**: after reading the dataset and before any split,\n"
-            "   use `LabelEncoder().fit(y)` → `y_enc = le.transform(y)` and keep `le.classes_` for later.\n"
-            "   `target_columns`: if length==1, use `LabelEncoder` on that column;"
-            "   if length>1, build `Y = df[target_columns].values` (and skip `stratify`)"
             "1. **Reproducibility**: set seeds for Python, NumPy, scikit-learn, and TensorFlow (or PyTorch).\n"
-            "2. **Imports**: `pandas`, `numpy`,\n"
-            "   - `sklearn.model_selection.train_test_split`,\n"
-            "   - `sklearn.impute.SimpleImputer`,\n"
-            "   - `sklearn.compose.ColumnTransformer`,\n"
-            "   - `sklearn.preprocessing.StandardScaler`,`OneHotEncoder`,\n"
-            "   - `sklearn.pipeline.Pipeline`,\n"
-            "   - `tensorflow` (or `torch`),\n"
-            "   - `tensorflow.keras.callbacks.EarlyStopping,ModelCheckpoint` (or torch equivalents),\n"
-            "   - `json`, `time`.\n"
-            "3. **Data Loading**:\n"
-            "   - Read every file in `training_files`.\n"
-            "   - **Infer `target_cols` programmatically**: if you passed a common prefix (e.g. `start_`) or know the count `N`, generate your list in code instead of hard-coding.\n"
-            "     **Special case:** If `target_columns` has more than 50 columns *and* they all share the same prefix P, you *must*:\n"
-            "       ```python\n"
-            "       prefix = \"P\"\n"
-            "       N = <the maximum index>\n"
-            "       target_cols = [f\"{prefix}{i}\" for i in range(1, N+1)]\n"
-            "       ```\n"
-            "     Do not inline the full list.\n""   "
-            "**Safe column handling**:\n"
-            "    1. Extract IDs and targets exactly by their raw CSV names, using a conditional pop/drop:\n"
-            "    3. Proceed without ever renaming or lowercasing — all subsequent code should refer to columns exactly as in the original files schema.\n"
-            "   - If there is more than one file, decide which ones are for training and testing based on `training_files` and `all_files` and `dataset_metadata` else split the single dataset 80/20 stratified on target.\n"
-            "   - Detect & preserve any ID column.\n"
-            "Preprocessing MUST ALSO include:\n"
-            "  - Label encoding of the target column to integers using\n"
-            "    `sklearn.preprocessing.LabelEncoder`, preserving the mapping for inverse transform.\n"
-            "4. **Feature Engineering**: automatically drop or transform obviously irrelevant columns (e.g. all-nan, high-cardinalities), at your discretion.\n"
-            "5. **Train/Validation Split**: if not already split"
-            "6. **Preprocessing Pipeline**:\n"
-            "   - Auto-detect numeric vs categorical via `df.select_dtypes`.\n"
-            "   - Build `ColumnTransformer`:\n"
-            "       - Numeric: `SimpleImputer(strategy='median', add_indicator=True)` → `StandardScaler()`\n"
-            "       - Categorical: `SimpleImputer(strategy='most_frequent')` → `OneHotEncoder(sparse_output=False, handle_unknown='ignore')`\n"
-            "   - Fit-transform train and transform val/test.\n"
-            "7. **Determine feature dimension**: `input_shape = X_train_proc.shape[1]`.\n"
-            "8. **Model Definition**: build an ANN in Keras/TensorFlow (or PyTorch) with at least two hidden layers, including `Dropout` or `BatchNormalization`.\n"
-            "9. **Compilation**: `Adam` optimizer, `binary_crossentropy` (or `mse`), metrics `['accuracy']` (or `['RootMeanSquaredError']`).\n"
-            "10. **Callbacks & Training**: `EarlyStopping(monitor='val_loss', patience=5)`   `ModelCheckpoint(save_best_only=True)`, up to 100 epochs, record training duration.\n"
-            "11. **Evaluation & Logging**: load best weights, extract `training_accuracy`, `training_loss`, `validation_accuracy`, `validation_loss`, save to `results.json`.\n"
-            "12. **Prediction & Submission**: transform test set, predict, and write 'submission_result.csv' with preserved IDs as first column.\n"
-            "    - For binary or multilabel classification, threshold the output probabilities at 0.5 and cast to int, so all target columns are 0 or 1 (no floats).\n"
-            "    - For multiclass (single target), use argmax for class labels and write integer class indices or decoded labels as expected.\n"
-            "    - For regression, output the predicted values as-is (do not round or threshold).\n"
-            "14. Load the test data by reading the testing files into a DataFrame.\n"
-            "15. Copy the ID column (`id_col`) from the test DataFrame and save it as `ids_test` (**never** drop the `id` column).\n"  
-            " 16. Remove target columns but keep the ID column\n"
-            "if using_provided_test_file then\n"
-            "    # provided test.csv has no targets → safe no-op drop\n"
-            "    features_df ← test_df.drop(columns=target_columns, ignore_missing=True)\n"
-            "else\n"
-            "    # split-from-single-file scenario → remove original target columns\n"
-            "    features_df ← test_df.drop(columns=target_columns)\n"
-            "end if\n"
-            "# ensure id_col remains in features_df at all times\n"
-            "16. Apply the preprocessing pipeline (`preprocessor.transform`) to the feature-only DataFrame to produce `X_test_proc`.\n"  
-            "17. Feed `X_test_proc` into your trained model to obtain raw predictions (`raw_preds`).\n"  
-            "18. Build the submission DataFrame:\n"  
-            "    – If there is **one** target column, threshold or map `raw_preds` directly into that column alongside `ids_test`.\n"  
-            "    – If there are **multiple** target columns, convert `raw_preds` into a table with those column names, then append `ids_test` under `id_col`.\n"  
-            "19. Reorder the submission DataFrame so that `ids_test` (under `id_col`) is the first column.\n"  
-            "20. Write the submission DataFrame to `'submission_result.csv'` without row indices.\n"  
-            "21. **Place this block at the end of your notebook**—after loading either the provided `'test.csv'` or your split DataFrame, predicting with `best_model`, and running these steps to generate and save the final CSV with the correct `id` and target column(s).**\n"  
-            "22. **If multiple target columns exist, verify that each appears as its own column in `submission_result.csv`.**\n"  
-
+            "2. **Imports**:\\n\"  \n"
+            "   - `pandas`, `numpy`\\n\"  \n"
+            "   - `sklearn.model_selection.train_test_split`\\n\"  \n"
+            "   - `sklearn.impute.SimpleImputer`\\n\"  \n"
+            "   - `sklearn.compose.ColumnTransformer`\\n\"  \n"
+            "   - `sklearn.preprocessing.StandardScaler`,`OneHotEncoder`,`LabelEncoder`  ← **added here**\\n\"  \n"
+            "   - `sklearn.pipeline.Pipeline`\\n\"  \n"
+            "   - `tensorflow` (or `torch`)\\n\"  \n"
+            "   - `tensorflow.keras.callbacks.EarlyStopping,ModelCheckpoint`\\n\"  \n"
+            "   - `json`, `time`\\n\"  \n"
+            "   When using OneHotEncoding, use sparse_output=False instead of sparse\n"
+           "3. Data Loading, Split & Target Encoding:\n"
+            "Read each file in files_list into train_dfs\n"
+            "If any filename endswith 'test.csv', load it into df_test, else df_test=None\n"
+            "Infer id_col & target_columns from submission_example header\n"
+            "df = pd.concat(train_dfs, ignore_index=True)\n"
+            "# Target encoding immediately after df is final:\n"
+            "col = target_columns[0]\n"
+            "if competition_problem_subtype=='binary-classification':\n"
+            "    from sklearn.preprocessing import LabelEncoder\n"
+            "    le=LabelEncoder().fit(df[col].astype(str))\n"
+            "    y_enc=le.transform(df[col].astype(str)).astype(int)\n"
+            "    classes_=le.classes_\n"
+            "elif competition_problem_subtype in ['multiclass-classification','multiclass classification','ordinal-regression']:\n"
+            "    from sklearn.preprocessing import LabelEncoder\n"
+            "    le=LabelEncoder().fit(df[col].astype(str))\n"
+            "    y_enc=le.transform(df[col].astype(str))\n"
+            "    classes_=le.classes_\n"
+            "elif competition_problem_subtype=='multi-label classification':\n"
+            "    from sklearn.preprocessing import MultiLabelBinarizer\n"
+            "    mlb=MultiLabelBinarizer()\n"
+            "    y_enc=mlb.fit_transform(df[target_columns])\n"
+            "    classes_=mlb.classes_\n"
+            "elif competition_problem_subtype in ['continuous-regression','quantile-regression','multi-output regression','missing-value-imputation']:\n"
+            "    y_enc=df[target_columns].astype(float).values\n"
+            "elif competition_problem_subtype in ['time-series-forecasting','multivariate-time-series-forecasting']:\n"
+            "    y_enc=df[target_columns].values\n"
+            "else:\n"
+            "    y_enc=df[target_columns].values\n"
+            "X=df.drop(columns=target_columns+[id_col],errors='ignore')\n"
+            "# now either use provided df_test or split off 20% for test:\n"
+            "if df_test is None:\n"
+            "    X_train,X_val,y_train,y_val=train_test_split(\n"
+            "        X,y_enc,\n"
+            "        test_size=0.2,\n"
+            "        stratify=y_enc if competition_problem_subtype in ['binary-classification','multiclass-classification','multiclass classification'] else None,\n"
+            "        random_state=42)\n"
+            "    train_ids=X_train[id_col]\n"
+            "    test_ids =X_val[id_col]\n"
+            "else:\n"
+            "    X_train=X\n"
+            "    y_train=y_enc\n"
+            "    train_ids=df[id_col]\n"
+            "    test_ids =df_test[id_col]\n"
+            "    X_val   =df_test.drop(columns=target_columns+[id_col],errors='ignore')\n"
+            "\n"
+            "4. Feature Engineering:\n"
+                "Automatically drop columns with all missing values\n"
+                "Identify categorical columns and remove those with extremely high cardinality (eg >50 unique)\n"
+                "Optionally apply any additional simple transformations you deem useful\n"
+            "5. **Preprocessing Pipeline**:\n"
+                "   - Auto-detect numeric vs. categorical via `df.select_dtypes`.\n"
+                "   - Build a `ColumnTransformer` with median‐imputed & scaled numerics, and most‐frequent‐imputed & OHE categoricals (cap at 50 cats).\n"
+                "   - Fit on train → transform train/val/test.\n"
+            "6. **Fix numbering**: ensure your sections run 0→11 with no gaps or duplicates.\n"
+            "7. **Model Architecture:**\n"
+                "- Build at least two hidden layers with BatchNormalization and Dropout after each\n"
+                "- Set output units = number of target_columns for multilabel/multiclass, else 1\n"
+                "- Choose depth & width by data shape: shallow/narrow for small datasets, deeper/wider for large datasets, scale units ≈ min(features×2,1024)\n"
+                "- Leverage provided `examples` but adjust architecture based on dataset size, feature count, and target count\n"
+                "- **Architectural Guidelines:**\n"
+                "   - **Choose by data size:**\n"
+                "     • If `n_samples < 10000` or `n_features < 100`:\n"
+                "         – Build **two** Dense layers of sizes:\n"
+                "             [min(n_features*2, 128), min(n_features, 64)]\n"
+                "         – **No** BatchNormalization; Dropout ≤ 0.3\n"
+                "     • Else:\n"
+                "         – Build **2–4** Dense layers of sizes:\n"
+                "             [min(n_features*i, 1024) for i in (2, 1, 0.5, 0.25)] (drop any <16 units)\n"
+                "         – After each: BatchNormalization() + Dropout(≤0.4)\n"
+                "\n"
+                "***For all hidden layers (except the final output), use ReLU activation***\n"
+                "  - **Task subtype → head, loss, batch & metrics:**\n"
+                "    **(Note: activation applies only to the final/output layer)**\n"
+                "    * **binary classification:**\n"
+                "        – activation=sigmoid, loss=binary_crossentropy\n"
+                "        – batch_size=64–256, metrics=['accuracy', tf.keras.metrics.AUC(), tfa.metrics.MatthewsCorrelationCoefficient()]\n"
+                "    * **multiclass classification (MAP@N):**\n"
+                "        – activation=softmax, loss=sparse_categorical_crossentropy\n"
+                "        – batch_size=32–128, metrics=['accuracy', tf.keras.metrics.TopKCategoricalAccuracy(k=N, name=f'top_{N}_accuracy')]\n"
+                "        – at inference: take the top-N softmax probabilities for submission\n"
+                "    * **multilabel classification:**\n"
+                "        – activation=sigmoid, loss=binary_crossentropy\n"
+                "        – batch_size=64–256, metrics=[tf.keras.metrics.Precision(), tf.keras.metrics.Recall(), tfa.metrics.F1Score(num_classes=n_classes)]\n"
+                "    * **regression:**\n"
+                "        – activation=linear, loss=mean_squared_error\n"
+                "        – batch_size=32–256, metrics=[tf.keras.metrics.RootMeanSquaredError(), tf.keras.metrics.MeanAbsoluteError(), tf.keras.metrics.RSquare()]\n"
+                "    * **time-series forecasting:**\n"
+                "        – use chronological split\n"
+                "        – activation=linear, loss=mean_squared_error\n"
+                "        – epochs=10–50, metrics=[tf.keras.metrics.RootMeanSquaredError()]\n"
+                ")"
+            
+            "8. **Compile the model with the Adam optimizer and the chosen loss and metrics\n"
+            "9. **Callbacks & Training**:\\n\"  \n"
+            "   start_time = time.time()  ← **capture before fit**\\n\"  \n"
+            "   history = model.fit(X_train_proc, y_train, validation_data=(X_val_proc, y_val), epochs=100, callbacks=callbacks)\\n\"  \n"
+            "   duration = time.time() - start_time  ← **compute after fit**\\n\"  \n"
+            "10. **Evaluation & Logging**:\\n\"  \n"
+            "   results = {\\n\"  \n"
+            "       'training_accuracy': train_accuracy,\\n\"  \n"
+            "       'validation_accuracy': val_accuracy,\\n\"  \n"
+            "       'validation_loss': val_loss,\\n\"  \n"
+            "       'training_loss': train_loss,\\n\"  \n"
+            "       'training_duration': duration\\n\"  \n"
+            "   }\\n\"  \n"
+            "   with open('results.json','w') as f: json.dump(results,f)\\n\"  \n"
+            "11. **Prediction & Submission**:\n"
+                "raw_preds = model.predict(X_test_proc)\n"
+                "***if competition_problem_subtype == ['multiclass','multiclass classification','multi-label classification` ]: final = le.inverse_transform(raw_preds.argmax(axis=1))\n"
+                "***elif competition_problem_subtype == 'binary-classification': final = (raw_preds.flatten() > 0.5).astype(int)\n"
+                "***else: final = raw_preds.flatten()\n"
+                "if len(target_columns) == 1:\n"
+                "    submission = pd.DataFrame({id_col: test_ids, target_columns[0]: final})\n"
+                "else:\n"
+                "    submission = pd.DataFrame(final, columns=target_columns)\n"
+                "    submission.insert(0, id_col, test_ids)\n"
+                "submission.to_csv('submission_result.csv', index=False)\n"
+            
         ),
         "parameters": {
             "type": "object",
@@ -312,14 +424,19 @@ generate_keras_schema = {
                 },
                 "competition_problem_subtype": {
                     "type": "string",
-                    "description": (
-                    "Specifies the subtype of the problem,\n\
-                    When preparing the submission, handle each `competition_problem_subtype` and ensure that the values match:\n\
-                        - **binary-classification** → outputs must be 0 or 1 only integer values, ensure no probabilities .\n\
-                        - **Multiclass classification** → use `argmax` to select label index (0…K-1) or inverse-transform via `LabelEncoder`.\n\
-                        - **Multilabel classification** → threshold each probability at 0.5 to produce 0/1 per class.\n\
-                        - **Regression** → preserve raw continuous predictions.\n"
-                    )
+                    "description": "One of:\n"
+                        "  - binary-classification\n"
+                        "  - multiclass-classification\n"
+                        "  - multiclass classification\n"
+                        "  - multi-label classification\n"
+                        "  - continuous-regression\n"
+                        "  - quantile-regression\n"
+                        "  - multi-output regression\n"
+                        "  - time-series-forecasting\n"
+                        "  - multivariate-time-series-forecasting\n"
+                        "  - ordinal-regression\n"
+                        "  - missing-value-imputation\n"
+                        "Rely on this to choose splits, loss, activation, etc."
                 },
                 "dataset_metadata": {
                     "type": "string",
@@ -327,7 +444,8 @@ generate_keras_schema = {
                 },
                 "data_profiles": {
                     "type": "object",
-                    "description": "A mapping filename → dataset schema & target summary of each file provided in the competition "
+                    "additionalProperties": False, 
+                    "properties": {}  
                 },
                 "files_preprocessing_instructions": {
                     "type": "string",
@@ -347,11 +465,11 @@ generate_keras_schema = {
                 },
                 "examples": {
                     "type": "array",
-                    "description": "Retrieved preprocessing and code snippets from solutions of top similar competitions, rely on them",
+                    "description": "Retrieved preprocessing and code snippets from solutions of top similar competitions, rely on them ",
                     "items": {
                         "type": "object",
+                        "additionalProperties": False,
                         "properties": {
-                            "kernel_ref":           {"type":"string"},
                             "score":                {"type":"number"},
                             "preprocessing_steps":  {
                                 "type":"array",
@@ -359,20 +477,212 @@ generate_keras_schema = {
                             },
                             "model_layers_code":    {"type":"string"}
                         },
-                        "required":["kernel_ref","score","preprocessing_steps","model_layers_code"]
+                        "required":["score","preprocessing_steps","model_layers_code"]
                     }
                 },
-
                 "notebook_code": {
                     "type": "string",
-                    "description": "***The complete runnable Python code wrapped in <Code>…</Code>, saved in the `notebook_code` json field.***"
+                    "description": "The complete runnable Python notebook code wrapped in <Code>…</Code>."
                 }
             },
             "required": [
+                "competition_problem_description",
+                "competition_problem_subtype",
+                "dataset_metadata",
+                "data_profiles",
+                "files_preprocessing_instructions",
+                "submission_example",
+                "files_list",
+                "examples",
                 "notebook_code"
             ]
-        }
+        },
+        "strict": True     # ← enforce valid JSON
     }
+] 
+
+
+
+
+# # llm_coding ----> solve_competition_keras
+# generate_keras_schema = {
+#         "name": "generate_keras_schema",   
+#         "description": (
+#             "***Generate and save a runnable Python code wrapped in <Code>…</Code> in a singe `notebook_code` json field:\\n"  
+#             "The generated code must implement:\n"
+#             "1. **Reproducibility**: set seeds for Python, NumPy, scikit-learn, and TensorFlow (or PyTorch).\n"
+#             "2. **Imports**:\\n\"  \n"
+#             "   - `pandas`, `numpy`\\n\"  \n"
+#             "   - `sklearn.model_selection.train_test_split`\\n\"  \n"
+#             "   - `sklearn.impute.SimpleImputer`\\n\"  \n"
+#             "   - `sklearn.compose.ColumnTransformer`\\n\"  \n"
+#             "   - `sklearn.preprocessing.StandardScaler`,`OneHotEncoder`,`LabelEncoder`  ← **added here**\\n\"  \n"
+#             "   - `sklearn.pipeline.Pipeline`\\n\"  \n"
+#             "   - `tensorflow` (or `torch`)\\n\"  \n"
+#             "   - `tensorflow.keras.callbacks.EarlyStopping,ModelCheckpoint`\\n\"  \n"
+#             "   - `json`, `time`\\n\"  \n"
+#             "3. Data Loading, Split & Target Encoding:\n"
+#                 "Read each file in files_list into train_dfs\n"
+#                 "If any filename endswith 'test.csv', load it into df_test, else df_test=None\n"
+#                 "Infer id_col & target_columns from submission_example header\n"
+#                 "df = pd.concat(train_dfs, ignore_index=True)\n"
+#                 "# Now df holds only training data\n"
+#                 "# Target encoding immediately after df is final:\n"
+#                 "col = target_columns[0]\n"
+#                 "if competition_problem_subtype in ['time-series-forecasting','multivariate-time-series-forecasting']:\n"
+#                 "    # chronological split\n"
+#                 "    cutoff = int(len(df) * 0.8)\n"
+#                 "    X_train,   y_train = X[:cutoff],   y_enc[:cutoff]\n"
+#                 "    X_val,     y_val   = X[cutoff:],   y_enc[cutoff:]\n"
+#                 "else:\n"
+#                 "    # random split (stratify only for binary/multiclass)\n"
+#                 "    kwargs = dict(test_size=0.2, random_state=42)\n"
+#                 "    if competition_problem_subtype in ['binary-classification','multiclass']:\n"
+#                 "        kwargs['stratify'] = y_enc\n"
+#                 "    X_train, X_val, y_train, y_val = train_test_split(X, y_enc, **kwargs)\n"
+#                 "# Use provided df_test or split df for test set:\n"
+#                 "if df_test is None:\n"
+#                 "    X = df.drop(columns=target_columns + [id_col], errors='ignore')\n"
+#                 "    X_train, X_val, y_train, y_val = train_test_split(\n"
+#                 "        X, y_enc,\n"
+#                 "        test_size=0.2,\n"
+#                 "        stratify=y_enc if competition_problem_subtype in ['binary-classification','multiclass'] else None,\n"
+#                 "        random_state=42)\n"
+#                 "    train_ids = X_train[id_col]\n"
+#                 "    test_ids  = X_val[id_col]\n"
+#                 "else:\n"
+#                 "    X_train = df.drop(columns=target_columns + [id_col], errors='ignore')\n"
+#                 "    y_train = y_enc\n"
+#                 "    train_ids = df[id_col]\n"
+#                 "    test_ids  = df_test[id_col]\n"
+#                 "    X_test   = df_test.drop(columns=target_columns + [id_col], errors='ignore')\n"
+#             "4. Feature Engineering:\n"
+#                 "Automatically drop columns with all missing values\n"
+#                 "Identify categorical columns and remove those with extremely high cardinality (eg >50 unique)\n"
+#                 "Optionally apply any additional simple transformations you deem useful\n"
+#             "5. **Preprocessing Pipeline**:\n"
+#                 "   - Auto-detect numeric vs. categorical via `df.select_dtypes`.\n"
+#                 "   - Build a `ColumnTransformer` with median‐imputed & scaled numerics, and most‐frequent‐imputed & OHE categoricals (cap at 50 cats).\n"
+#                 "   - Fit on train → transform train/val/test.\n"
+#             "6. **Fix numbering**: ensure your sections run 0→11 with no gaps or duplicates.\n"
+#             "7. **Model Activation Functions & Sizing:**\n"
+#                 "- Build at least two hidden layers with BatchNormalization and Dropout after each\n"
+#                 "- Set output units = number of target_columns for multilabel/multiclass, else 1\n"
+#                 "For the last model layer pick one of these activation functions based on the `competition_problem_subtype`\n"
+#                 "- ***Use softmax activation for ['multiclass','multiclass classification','multi-label classification` ] classification\n"
+#                 "- ***Use sigmoid activation for binary classification or multilabel\n"
+#                 "- ***Use linear activation for regression or other continuous targets\n"
+#                 "- ****Choose depth and width by data shape: shallow/narrow for small datasets, deeper/wider for large datasets, scale units ≈ min(features×2, 1024)\n"
+#                 "- Leverage provided `examples` preprocessing steps and model code but adjust architecture based on dataset size, feature count, and target count\n"
+#             "8. Loss Functions and Compilation:\n"
+#                 "- For regression: set loss to 'mse' and metrics to ['RootMeanSquaredError']\n"
+#                 "- For binary classification: set loss to 'binary_crossentropy' and metrics to ['accuracy']\n"
+#                 "- For multiclass classification: set loss to 'sparse_categorical_crossentropy' and metrics to ['accuracy']\n"
+#                 "- For multilabel classification: set loss to 'binary_crossentropy' and metrics to ['accuracy']\n"
+#                 "- Compile the model with the Adam optimizer and the chosen loss and metrics\n"
+#             "9. **Callbacks & Training**:\\n\"  \n"
+#             "   start_time = time.time()  ← **capture before fit**\\n\"  \n"
+#             "   history = model.fit(X_train_proc, y_train, validation_data=(X_val_proc, y_val), epochs=100, callbacks=callbacks)\\n\"  \n"
+#             "   duration = time.time() - start_time  ← **compute after fit**\\n\"  \n"
+#             "10. **Evaluation & Logging**:\\n\"  \n"
+#             "   results = {\\n\"  \n"
+#             "       'training_accuracy': train_accuracy,\\n\"  \n"
+#             "       'validation_accuracy': val_accuracy,\\n\"  \n"
+#             "       'validation_loss': val_loss,\\n\"  \n"
+#             "       'training_loss': train_loss,\\n\"  \n"
+#             "       'training_duration': duration\\n\"  \n"
+#             "   }\\n\"  \n"
+#             "   with open('results.json','w') as f: json.dump(results,f)\\n\"  \n"
+#             "11. **Prediction & Submission**:\n"
+#                 "raw_preds = model.predict(X_test_proc)\n"
+#                 "***if competition_problem_subtype == ['multiclass','multiclass classification','multi-label classification` ]: final = le.inverse_transform(raw_preds.argmax(axis=1))\n"
+#                 "***elif competition_problem_subtype == 'binary-classification': final = (raw_preds.flatten() > 0.5).astype(int)\n"
+#                 "***else: final = raw_preds.flatten()\n"
+#                 "if len(target_columns) == 1:\n"
+#                 "    submission = pd.DataFrame({id_col: test_ids, target_columns[0]: final})\n"
+#                 "else:\n"
+#                 "    submission = pd.DataFrame(final, columns=target_columns)\n"
+#                 "    submission.insert(0, id_col, test_ids)\n"
+#                 "submission.to_csv('submission_result.csv', index=False)\n"
+            
+#         ),
+#         "parameters": {
+#             "type": "object",
+#             "additionalProperties": False,
+#             "properties": {
+#                 "competition_problem_description": {
+#                     "type": "string",
+#                     "description": "Dense competition description giving the core goal."
+#                 },
+#                 "competition_problem_subtype": {
+#                     "type": "string",
+#                     "description": "One of:\n"
+#                         "  - binary-classification\n"
+#                         "  - multiclass-classification\n"
+#                         "  - multiclass classification\n"
+#                         "  - multi-label classification\n"
+#                         "  - continuous-regression\n"
+#                         "  - quantile-regression\n"
+#                         "  - multi-output regression\n"
+#                         "  - time-series-forecasting\n"
+#                         "  - multivariate-time-series-forecasting\n"
+#                         "  - ordinal-regression\n"
+#                         "  - missing-value-imputation\n"
+#                         "Rely on this to choose splits, loss, activation, etc."
+#                 },
+#                 "dataset_metadata": {
+#                     "type": "string",
+#                     "description": "Full NLP explanation of the dataset, the columns that need to be predicted and the training files provided"
+#                 },
+#                 "data_profiles": {
+#                     "type": "object",
+#                     "description": "A mapping filename → dataset schema & target summary of each file provided in the competition "
+#                 },
+#                 "files_preprocessing_instructions": {
+#                     "type": "string",
+#                     "description": "Instructions for how to preprocess the raw files."
+#                 },
+#                 "submission_example": {
+#                     "type": "string", 
+#                     "description": (  
+#                         "Contains the target columns ***not including the id column*** that need to be predicted and the example format of columns and values that needs to be outputted to the submission_results.csv`\n\
+#                         Rely on the `submission_example` for how to format the sumbission and pay attentiton for what types of values there are\n"                
+#                     )
+#                 },
+#                 "files_list": {
+#                     "type": "array",
+#                     "items": {"type": "string"},
+#                     "description": " list of all files included in the competition, decide whether there are testing files and whether you need to split the training dataset"
+#                 },
+#                 "examples": {
+#                     "type": "array",
+#                     "description": "Retrieved preprocessing and code snippets from solutions of top similar competitions, rely on them ",
+#                     "items": {
+#                         "type": "object",
+#                         "properties": {
+#                             "kernel_ref":           {"type":"string"},
+#                             "score":                {"type":"number"},
+#                             "preprocessing_steps":  {
+#                                 "type":"array",
+#                                 "items":{"type":"string"}
+#                             },
+#                             "model_layers_code":    {"type":"string"}
+#                         },
+#                         "required":["kernel_ref","score","preprocessing_steps","model_layers_code"]
+#                     }
+#                 },
+
+#                 "notebook_code": {
+#                     "type": "string",
+#                     "description": "***The complete runnable Python code wrapped in <Code>…</Code>, saved in the `notebook_code` json field.***"
+#                 }
+#             },
+#             "required": [
+#                 "notebook_code"
+#             ]
+#         },
+#         "strict": True
+#     }
 
 
 
@@ -775,4 +1085,259 @@ generate_keras_schema = {
                 - Threshold or argmax as needed.\n\
                 - Build DataFrame with ID first, targets next; save as `submission_result.csv` (no index).\n"
         
+"""
+
+""""***Generate and save a runnable Python code wrapped in <Code>…</Code> in a singe `notebook_code` json field:\\n"  
+            "The generated code must implement:\n"
+            "0. **Target encoding**: immediately after loading/concatenating train files, before split:\n"
+            "   if len(target_columns) > 1:\n"
+            "       # multilabel or multi-output regression\n"
+            "       # keep shape (n_samples, n_targets)\n"
+            "       if competition_problem_subtype in ['multilabel']:\n"
+            "           y_enc = df[target_columns].astype(int).values\n"
+            "       else:  # regression or quantile\n"
+            "           y_enc = df[target_columns].astype(float).values\n"
+            "   else:\n"
+            "       # single-target classification or regression\n"
+            "       col = target_columns[0]\n"
+            "       if competition_problem_subtype in ['binary-classification','multiclass']:\n"
+            "           from sklearn.preprocessing import LabelEncoder\n"
+            "           le = LabelEncoder().fit(df[col].astype(str))\n"
+            "           y_enc = le.transform(df[col].astype(str))\n"
+            "           classes_ = le.classes_\n"
+            "       else:\n"
+            "           y_enc = df[col].astype(float).values\n"
+            "   X = df.drop(columns=target_columns)  # drop targets before preprocessing\n"
+            "1. **Reproducibility**: set seeds for Python, NumPy, scikit-learn, and TensorFlow (or PyTorch).\n"
+            "2. **Imports**: `pandas`, `numpy`,\n"
+            "   - `sklearn.model_selection.train_test_split`,\n"
+            "   - `sklearn.impute.SimpleImputer`,\n"
+            "   - `sklearn.compose.ColumnTransformer`,\n"
+            "   - `sklearn.preprocessing.StandardScaler`,`OneHotEncoder`,\n"
+            "   - `sklearn.pipeline.Pipeline`,\n"
+            "   - `tensorflow` (or `torch`),\n"
+            "   - `tensorflow.keras.callbacks.EarlyStopping,ModelCheckpoint` (or torch equivalents),\n"
+            "   - `json`, `time`.\n"
+            "3. **Data Loading & ID extraction**:\n"
+            "- Read every file in `training_files` into `train_dfs`, and load `df_test` if a provided test file exists.\n"
+            "- **Infer `id_col` & `target_columns`** from `submission_example`:\n"
+            "```python\n"
+            "header = submission_example.splitlines()[0]    # grab header row\n"
+            "cols   = header.split(',')                    # split into column names\n"
+            "id_col = cols[0]                              # first element is ID\n"
+            "target_columns = cols[1:]                     # everything else are targets\n"
+            "```\n"
+            "- **Extract & drop ID**:\n"
+            "```python\n"
+            "# load and concatenate training files\n"
+            "train_dfs = [pd.read_csv(f) for f in training_files]\n"
+            "train_ids = pd.concat([df[id_col] for df in train_dfs], ignore_index=True)\n"
+            "train_dfs = [df.drop(columns=[id_col]) for df in train_dfs]\n"
+            "# handle provided test file if present\n"
+            "if df_test is not None:\n"
+            "    test_ids = df_test[id_col].copy()\n"
+            "    df_test  = df_test.drop(columns=[id_col], errors='ignore')\n"
+            "# now concatenate all train data into one df\n"
+            "df = pd.concat(train_dfs, ignore_index=True)\n"
+            "```\n"
+            "4. **Feature Engineering**:\n"
+            "- Automatically drop or transform obviously irrelevant columns, for example:\n"
+            "```python\n"
+            "# drop columns with all missing values\n"
+            "df = df.dropna(axis=1, how='all')\n"
+            "# drop categorical features with extremely high cardinality\n"
+            "cat_cols = df.select_dtypes(include=['object']).columns\n"
+            "high_card = [c for c in cat_cols if df[c].nunique() > 50]\n"
+            "df = df.drop(columns=high_card)\n"
+            "# (optional) apply simple feature transforms at your discretion\n"
+            "```\n"
+            "5. **Train/Validation Split**:\n"
+            "- After target encoding, split into train/validation according to subtype:\n"
+            "```python\n"
+            "if competition_problem_subtype in ['time-series-forecasting','multivariate-time-series-forecasting']:\n"
+            "    cutoff = int(len(X) * 0.8)\n"
+            "    X_train, X_val = X[:cutoff], X[cutoff:]\n"
+            "    y_train, y_val = y_enc[:cutoff], y_enc[cutoff:]\n"
+            "else:\n"
+            "    split_kwargs = dict(test_size=0.2, random_state=42)\n"
+            "    if competition_problem_subtype in ['binary-classification','multiclass']:\n"
+            "        split_kwargs['stratify'] = y_enc\n"
+            "    X_train, X_val, y_train, y_val = train_test_split(X, y_enc, **split_kwargs)\n"
+            "```\n"
+            "6. **Preprocessing Pipeline**:\n"
+            "   - Auto-detect numeric vs. categorical via `df.select_dtypes`.\n"
+            "   - Build a `ColumnTransformer` with median‐imputed & scaled numerics, and most‐frequent‐imputed & OHE categoricals (cap at 50 cats).\n"
+            "   - Fit on train → transform train/val/test.\n"
+            "7. **Fix numbering**: ensure your sections run 0→22 with no gaps or duplicates.\n"
+            "8. **Model Definition**: two+ hidden layers, each with `BatchNormalization` & `Dropout`, final `units/activation` by subtype:\n"
+            "   ```python\n"
+            "   from tensorflow.keras.layers import Dense, BatchNormalization, Dropout\n"
+            "   units = len(target_columns) if competition_problem_subtype in ['multilabel','multiclass'] else 1\n"
+            "   if competition_problem_subtype == 'multiclass':\n"
+            "       final_activation = 'softmax'\n"
+            "   elif competition_problem_subtype in ['binary-classification','multilabel']:\n"
+            "       final_activation = 'sigmoid'\n"
+            "   else:\n"
+            "       final_activation = 'linear'\n"
+            "   # e.g. Sequential([... , Dense(units, activation=final_activation)])\n"
+            "   ```\n"
+            "9. **Compilation**: set `loss`/`metrics` by subtype:\n"
+            "   ```python\n"
+            "   if competition_problem_subtype == 'regression':\n"
+            "       loss, metrics = 'mse', ['RootMeanSquaredError']\n"
+            "   elif competition_problem_subtype == 'binary-classification':\n"
+            "       loss, metrics = 'binary_crossentropy', ['accuracy']\n"
+            "   elif competition_problem_subtype == 'multiclass':\n"
+            "       loss, metrics = 'sparse_categorical_crossentropy', ['accuracy']\n"
+            "   else:  # multilabel or multi-output regression\n"
+            "       loss, metrics = 'binary_crossentropy' if competition_problem_subtype=='multilabel' else 'mse', ['accuracy'] if competition_problem_subtype=='multilabel' else ['RootMeanSquaredError']\n"
+            "   model.compile(optimizer='adam', loss=loss, metrics=metrics)\n"
+            "   ```\n"
+            "10. **Callbacks & Training**: `EarlyStopping(monitor='val_loss', patience=5)` + `ModelCheckpoint(save_best_only=True)`, up to 100 epochs.\n"
+            "11. **Evaluation & Logging**: load best weights, evaluate on train/val, save `training_accuracy`, `validation_accuracy`, losses & duration to `results.json`.\n"
+            "12. **Prediction & Submission**: always one column per row:\n"
+            "   ```python\n"
+            "   preds = model.predict(X_test_proc)\n"
+            "   if competition_problem_subtype == 'multiclass':\n"
+            "       idx   = preds.argmax(axis=1)\n"
+            "       final = le.inverse_transform(idx)\n"
+            "   elif competition_problem_subtype == 'binary-classification':\n"
+            "       final = (preds.flatten() > 0.5).astype(int)\n"
+            "   else:\n"
+            "       final = preds.flatten()\n"
+            "   submission = pd.DataFrame({id_col: test_ids, target_columns[0]: final})\n"
+            "   submission.to_csv('submission_result.csv', index=False)\n"
+            "   ```\n"
+
+            "13. Load the test data by reading the testing files into a DataFrame.\n"
+            "14. Copy the ID column (`id_col`) from the test DataFrame and save it as `ids_test` (**never** drop the `id` column).\n"  
+            "15. Apply the preprocessing pipeline (`preprocessor.transform`) to the feature-only DataFrame to produce `X_test_proc`.\n"  
+            "16. Feed `X_test_proc` into your trained model to obtain raw predictions (`raw_preds`).\n"  
+            "17. **Prediction & Submission**:\n"
+            "   preds = model.predict(X_test_proc)\n"
+            "   # single-target case\n"
+            "   if len(target_columns) == 1:\n"
+            "       if competition_problem_subtype == 'multiclass':\n"
+            "           idx   = preds.argmax(axis=1)\n"
+            "           final = le.inverse_transform(idx)\n"
+            "       elif competition_problem_subtype == 'binary-classification':\n"
+            "           final = (preds.flatten() > 0.5).astype(int)\n"
+            "       else:  # regression\n"
+            "           final = preds.flatten()\n"
+            "       submission = pd.DataFrame({id_col: test_ids, target_columns[0]: final})\n"
+            "   # multi-target case\n"
+            "   else:\n"
+            "       if competition_problem_subtype == 'multilabel':\n"
+            "           final = (preds > 0.5).astype(int)\n"
+            "       else:  # multi-output regression\n"
+            "           final = preds\n"
+            "       submission = pd.DataFrame(final, columns=target_columns)\n"
+            "       submission[id_col] = test_ids\n"
+            "       submission = submission[[id_col] + target_columns]\n"
+            "   submission.to_csv('submission_result.csv', index=False)\n"
+
+            "19. Reorder the submission DataFrame so that `ids_test` (under `id_col`) is the first column.\n"  
+            "20. Write the submission DataFrame to `'submission_result.csv'` without row indices.\n"  
+            "21. **Place this block at the end of your notebook**—after loading either the provided `'test.csv'` or your split DataFrame, predicting with `best_model`, and running these steps to generate and save the final CSV with the correct `id` and target column(s).**\n"  
+            "22. **If multiple target columns exist, verify that each appears as its own column in `submission_result.csv`.**\n"  
+"""
+
+
+""""***Generate and save a runnable Python code wrapped in <Code>…</Code> in a singe `notebook_code` json field:\\n"  
+            "The generated code must implement:\n"
+            "0. **Target encoding**: after loading/concatenating train files & before any split:\n"
+            "```python\n"
+            "from sklearn.preprocessing import LabelEncoder\n"
+            "col=target_columns[0]\n"
+            "if competition_problem_subtype in ['binary-classification','multiclass']:\n"
+            "    from sklearn.preprocessing import LabelEncoder"
+            "    le = LabelEncoder().fit(df[col].astype(str))\n"
+            "    y_enc = le.transform(df[col].astype(str)).astype(int)\n"
+            "    classes_=le.classes_\n"
+            "elif competition_problem_subtype=='multiclass-classification':\n"
+            "    le=LabelEncoder().fit(df[col].astype(str))\n"
+            "    y_enc=le.transform(df[col].astype(str))             # 0…K-1\n"
+            "    classes_=le.classes_\n"
+            "elif competition_problem_type=='regression' and len(target_columns)==1:\n"
+            "    y_enc=df[col].astype(float).values                  # continuous\n"
+            "else:\n"
+            "    y_enc=df[target_columns].values                     # multi-output (multilabel/regression)\n"
+            "X=df.drop(columns=target_columns, ignore_missing=True)\n"
+            "```"
+            "1. **Reproducibility**: set seeds for Python, NumPy, scikit-learn, and TensorFlow (or PyTorch).\n"
+            "2. **Imports**: `pandas`, `numpy`,\n"
+            "   - `sklearn.model_selection.train_test_split`,\n"
+            "   - `sklearn.impute.SimpleImputer`,\n"
+            "   - `sklearn.compose.ColumnTransformer`,\n"
+            "   - `sklearn.preprocessing.StandardScaler`,`OneHotEncoder`,\n"
+            "   - `sklearn.pipeline.Pipeline`,\n"
+            "   - `tensorflow` (or `torch`),\n"
+            "   - `tensorflow.keras.callbacks.EarlyStopping,ModelCheckpoint` (or torch equivalents),\n"
+            "   - `json`, `time`.\n"
+            "3. **Data Loading**:\n"
+            "   - Read every file in `training_files`.\n"
+            "   - **Infer `target_cols` programmatically**: if you passed a common prefix (e.g. `start_`) or know the count `N`, generate your list in code instead of hard-coding.\n"
+            "     **Special case:** If `target_columns` has more than 50 columns *and* they all share the same prefix P, you *must*:\n"
+            "       ```python\n"
+            "       prefix = \"P\"\n"
+            "       N = <the maximum index>\n"
+            "       target_cols = [f\"{prefix}{i}\" for i in range(1, N+1)]\n"
+            "       ```\n"
+            "     Do not inline the full list.\n""   "
+            "**Safe column handling**:\n"
+            "    1. Extract IDs and targets exactly by their raw CSV names, using a conditional pop/drop **(always include ignore_missing=True):\n"
+            "    3. Proceed without ever renaming or lowercasing — all subsequent code should refer to columns exactly as in the original files schema.\n"
+            "   - If there is more than one file, decide which ones are for training and testing based on `training_files` and `all_files` and `dataset_metadata` else split the single dataset 80/20 stratified on target.\n"
+            "   - Detect & preserve any ID column.\n"
+            "Preprocessing MUST ALSO include:\n"
+            "  - Label encoding of the target column to integers using\n"
+            "    `sklearn.preprocessing.LabelEncoder`, preserving the mapping for inverse transform.\n"
+            "4. **Feature Engineering**: automatically drop or transform obviously irrelevant columns (e.g. all-nan, high-cardinalities), at your discretion.\n"
+            "5. **Train/Validation Split**: if not already split"
+            "6. **Preprocessing Pipeline**:\n"
+            "   - Auto-detect numeric vs categorical via `df.select_dtypes`.\n"
+            "   - Build `ColumnTransformer`:\n"
+            "       - Numeric: `SimpleImputer(strategy='median', add_indicator=True)` → `StandardScaler()`\n"
+            "       - Categorical: `SimpleImputer(strategy='most_frequent')` → `OneHotEncoder(sparse_output=False, handle_unknown='ignore')`\n"
+            "   - Fit-transform train and transform val/test.\n"
+            "7. **Determine feature dimension**: `input_shape = X_train_proc.shape[1]`.\n"
+            "8. **Model Definition**: build an ANN in Keras/TensorFlow (or PyTorch) with at least two hidden layers, including `Dropout` or `BatchNormalization`.\n"
+            "9. **Compilation**: `Adam` optimizer, `binary_crossentropy` (or `mse`), metrics `['accuracy']` (or `['RootMeanSquaredError']`).\n"
+            "10. **Callbacks & Training**: `EarlyStopping(monitor='val_loss', patience=5)`   `ModelCheckpoint(save_best_only=True)`, up to 100 epochs, record training duration.\n"
+            "11. **Evaluation & Logging**: load best weights, extract `training_accuracy`, `training_loss`, `validation_accuracy`, `validation_loss`, save to `results.json`.\n"
+            "12. **Prediction & Submission**:\n"
+            "raw = model.predict(X_test_proc)\n"
+            "if competition_problem_subtype == 'multiclass-classification':\n"
+            "    preds = raw.argmax(axis=1)\n"
+            "elif competition_problem_subtype in ['binary-classification','multilabel']:\n"
+            "    preds = (raw > 0.5).astype(int)\n"
+            "elif competition_problem_type == 'regression'\n"
+            "    preds = raw.flatten()\n"
+            "if len(target_columns) == 1:\n"
+            "    submission = pd.DataFrame({id_col: test_ids, target_columns[0]: preds})\n"
+            "else:\n"
+            "    submission = pd.DataFrame(preds, columns=target_columns)\n"
+            "    submission.insert(0, id_col, test_ids)\n"
+            "df_out.insert(0, id_col, test_ids)\n"
+            "df_out.to_csv('submission_result.csv', index=False)\n"
+            "13. Load the test data by reading the testing files into a DataFrame.\n"
+            "14. Copy the ID column (`id_col`) from the test DataFrame and save it as `ids_test` (**never** drop the `id` column).\n"  
+            "15. Remove target columns but keep the ID column\n"
+            "if using_provided_test_file then\n"
+            "    # provided test.csv has no targets → safe no-op drop\n"
+            "    features_df ← test_df.drop(columns=target_columns, ignore_missing=True)\n"
+            "else\n"
+            "    # split-from-single-file scenario → remove original target columns\n"
+            "    features_df ← test_df.drop(columns=target_columns, ignore_missing=True)\n"
+            "end if\n"
+            "# ensure id_col remains in features_df at all times\n"
+            "16. Apply the preprocessing pipeline (`preprocessor.transform`) to the feature-only DataFrame to produce `X_test_proc`.\n"  
+            "17. Feed `X_test_proc` into your trained model to obtain raw predictions (`raw_preds`).\n"  
+            "18. Build the submission DataFrame:\n"  
+            "    – If there is **one** target column, threshold or map `raw_preds` directly into that column alongside `ids_test`.\n"  
+            "    – If there are **multiple** target columns, convert `raw_preds` into a table with those column names, then append `ids_test` under `id_col`.\n"  
+            "19. Reorder the submission DataFrame so that `ids_test` (under `id_col`) is the first column.\n"  
+            "20. Write the submission DataFrame to `'submission_result.csv'` without row indices.\n"  
+            "21. **Place this block at the end of your notebook**—after loading either the provided `'test.csv'` or your split DataFrame, predicting with `best_model`, and running these steps to generate and save the final CSV with the correct `id` and target column(s).**\n"  
+            "22. **If multiple target columns exist, verify that each appears as its own column in `submission_result.csv`.**\n"  
 """

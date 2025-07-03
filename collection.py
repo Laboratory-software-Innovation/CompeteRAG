@@ -17,19 +17,38 @@ from nbconvert import PythonExporter
 
 import openai
 from selenium_helper import init_selenium_driver
-from config import OPENAI_MODEL,EXCEL_FILE,MAX_NOTEBOOK_TOKENS,ENCODER,kaggle_api
-from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab,describe_schema, download_train_file, extract_tabular
+from config import OPENAI_MODEL,EXCEL_FILE
+from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab,describe_schema, extract_tabular, download_train_file
 from prompts import label_competition_schema, ask_structured_schema
 from comps import train
 
 #Get the target column
 def label_competition(comp_meta: dict) -> dict:
-    """
-    Calls the LLM to extract:
-      - target_column: list of all label columns in train.csv
-      - training_files: list of all tabular files to download
-    from the competition_metadata and dataset_metadata.
-    """
+
+    metrics_block = (
+    "   MAP@N – Mean Average Precision\n"
+    "   RMSLE – Root Mean Squared Logarithmic Error\n"
+    "   RMSE – Root Mean Squared Error\n"
+    "   ROC Curve\n"
+    "   MAPE – Mean Absolute Percentage Error\n"
+    "   Accuracy\n"
+    "   MCC – Matthews Correlation Coefficient\n"
+    "   R2 – Coefficient of Determination\n"
+    "   Log Loss\n"
+    "   MedAE – Median Absolute Error\n"
+    "   Micro-averaged F1-Score\n"
+    "   SMAPE – Symmetric Mean Absolute Percentage Error\n"
+    "   MAE – Mean Absolute Error\n"
+    "   Quadratic Weighted Kappa\n"
+    "   Adjusted Rand Index\n"
+    "   AUCROC\n"
+    "   Multi-class Log Loss\n"
+    "   Macro F1 Score\n"
+    "   F1 Score\n"
+    "   Multi-class classification accuracy\n"
+    "   Categorization accuracy\n"
+    "   Classification accuracy\n"
+)
     # build our messages
     system_msg = {
         "role": "system",
@@ -38,6 +57,8 @@ def label_competition(comp_meta: dict) -> dict:
             "Use the provided competition_metadata and dataset_metadata to fill exactly two fields:\n"
             "  1) target_column: an array of all column names in the dataset that must be predicted\n"
             "  2) training_files: Based on dataset_metadata give [<string>, …],  an array of all training tabular files that need to be downloaded\n"
+            "  3) evaluation_metric: based on the competition_metadata, retrieve the evaluation metrics used in the competition, pick one of the following"
+            f"{metrics_block}"
             "Emit ONLY those two keys as JSON—no extra keys, no prose, no markdown."
         )
     }
@@ -285,6 +306,7 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
             "competition_problem_subtype",
             "competition_problem_description",
             "competition_dataset_type",
+            "evaluation_metrics",
             "dataset_metadata",
             "target_column", 
             "preprocessing_steps",
@@ -292,8 +314,7 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
             "used_technique",
             "library",
             "kernel_ref",
-            "kernel_link"
-            "training_files"
+            "kernel_link",
         ])
 
     # # Fetch slugs, either fresh or resuming
@@ -329,6 +350,9 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
         comp_meta.update(labels)
         print(comp_meta["target_column"])
         print(comp_meta["training_files"])
+        print(comp_meta["evaluation_metrics"])        
+
+        
         ##In case we need to download them
         # downloaded_paths = download_train_file(
         #     comp_meta["slug"],
@@ -446,6 +470,7 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
                     struct["competition_problem_subtype"],
                     struct["competition_problem_description"],
                     struct["competition_dataset_type"],
+                    comp_meta["evaluation_metrics"],
                     struct["dataset_metadata"],
                     struct["target_column"], 
                     json.dumps(struct["preprocessing_steps"], ensure_ascii=False),
@@ -464,6 +489,7 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
                     "competition_problem_subtype":     struct["competition_problem_subtype"],
                     "competition_problem_description": struct["competition_problem_description"],
                     "competition_dataset_type":        struct["competition_dataset_type"],
+                    "evaluation_metrics":              comp_meta["evaluation_metrics"],
                     "dataset_metadata":                struct["dataset_metadata"],
                     "target_column":                   struct["target_column"],
                     "preprocessing_steps":             struct["preprocessing_steps"],
@@ -569,6 +595,7 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
                     struct["competition_problem_subtype"],
                     struct["competition_problem_description"],
                     struct["competition_dataset_type"],
+                    comp_meta["evaluation_metrics"],
                     struct["dataset_metadata"],
                     struct["target_column"], 
                     json.dumps(struct["preprocessing_steps"], ensure_ascii=False),
@@ -586,6 +613,7 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
                     "competition_problem_subtype":     struct["competition_problem_subtype"],
                     "competition_problem_description": struct["competition_problem_description"],
                     "competition_dataset_type":        struct["competition_dataset_type"],
+                    "evaluation_metrics":              comp_meta["evaluation_metrics"],
                     "dataset_metadata":                struct["dataset_metadata"],
                     "target_column":                   struct["target_column"],
                     "preprocessing_steps":             struct["preprocessing_steps"],

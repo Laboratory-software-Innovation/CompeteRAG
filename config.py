@@ -31,11 +31,12 @@ kaggle_api.authenticate()
 load_dotenv()
 OPENAI_MODEL = "gpt-4o-mini"
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
 #  Tokenizer for truncation
-ENCODER = tiktoken.get_encoding("cl100k_base")
+#ENCODER = tiktoken.get_encoding("cl100k_base")
 
 #  Maximum tokens from a notebook to send to the LLM
-MAX_NOTEBOOK_TOKENS = 1000
+#MAX_NOTEBOOK_TOKENS = 1000
 
 MAX_FEATURES = 50
 MAX_CLASSES = 50 

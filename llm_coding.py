@@ -12,7 +12,7 @@ from config import OPENAI_MODEL,kaggle_api
 from selenium_helper import init_selenium_driver
 from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab, describe_schema, compact_profile_for_llm,select_hyperparameter_profile
 from similarity import find_similar_ids
-from prompts import generate_keras_schema,structure_and_label_competition_schema,generate_tuner_schema
+from prompts import tools, structure_and_label_competition_schema,generate_tuner_schema
 from config import kaggle_api, MAX_CLASSES, MAX_FEATURES
 from tuner_bank import HYPERPARAMETER_BANK
 
@@ -53,10 +53,12 @@ def structure_and_label_competition(comp_meta: dict) -> dict:
         "content": json.dumps({
             "competition_metadata": comp_meta["competition_metadata"],
             "dataset_metadata":     comp_meta["dataset_metadata"],
-            "files_list":           comp_meta["files_list"],
-            "all_files":            comp_meta.get("all_files", comp_meta["files_list"])
+            "files_list":           comp_meta["files_list"], #Retrieved via parsing
+            "all_files":            comp_meta["all_files"] #Retrieved via Kaggle API
         }, ensure_ascii=False)
     }
+
+    #Parsing the files seemed to provide more useful file, due to Kaggle API output limitations and LLM prompt limit
 
     # 2) call the model with our function schema
     response = openai.chat.completions.create(
@@ -94,34 +96,17 @@ def list_files(slug : str) -> List[str]:
 
 
 
-def postprocess_code(code):
-    if code.startswith("<Code>") and code.endswith("</Code>"):
-        code = code[len("<Code>"):-len("</Code>")].strip()
-
-    # If it's a single line with visible \n, but no actual newlines
-    if "\\n" in code and "\n" not in code:
-        # 1. Try to parse as JSON string literal (most robust, if code is surrounded by quotes)
-        try:
-            code_candidate = json.loads(code)
-            # If it looks like code, take it
-            if "import" in code_candidate or "def " in code_candidate:
-                return code_candidate
-        except Exception:
-            pass
-        # 2. Try ast.literal_eval
-        try:
-            code_candidate = ast.literal_eval(code)
-            if isinstance(code_candidate, str):
-                return code_candidate
-        except Exception:
-            pass
-        # 3. Fallback: decode unicode escapes
-        try:
-            code = code.encode("utf-8").decode("unicode_escape")
-        except Exception:
-            pass
-
-    return code
+def postprocess_code(code: str) -> str:
+    """
+    Extract just the code between <Code>…</Code> and drop any surrounding text.
+    """
+    # Find the content between the <Code> tags (including multiline)
+    m = re.search(r"<Code>(.*?)</Code>", code, flags=re.DOTALL)
+    if not m:
+        # no tags found, just return the original
+        return code
+    # Return the inner snippet, trimmed of leading/trailing whitespace
+    return m.group(1).strip()
 
 def compact(comp_struct):
         raw_targets = comp_struct["target_column"]
@@ -163,6 +148,73 @@ def compact(comp_struct):
         return range_specs
 
 
+def generate_keras_schema_impl(
+    competition_problem_description: str,
+    competition_problem_subtype: str,
+    dataset_metadata: str,
+    data_profiles: dict,
+    files_preprocessing_instructions: str,
+    submission_example: str,
+    files_list: list[str],
+    examples: list[dict]
+) -> str:
+    # STEP 1: ask the Responses API to plan a function call
+    plan_resp = openai.responses.create(
+        model="o4-mini",
+        input=[
+            {"role":"system", "content":
+             "You are a world-class deep learning engineer.  "
+             "Decide to call generate_keras_schema to build a Keras notebook."
+            },
+            {"role":"user", "content": json.dumps({
+                "competition_problem_description":  competition_problem_description,
+                "competition_problem_subtype":      competition_problem_subtype,
+                "dataset_metadata":                 dataset_metadata,
+                "data_profiles":                    data_profiles,
+                "files_preprocessing_instructions": files_preprocessing_instructions,
+                "submission_example":               submission_example,
+                "files_list":                       files_list,
+                "examples":                         examples,
+            }, ensure_ascii=False)}
+        ],
+        tools=tools,
+        store=True
+    )
+
+    # look for a tool_call, not a function_call
+    call_evt = next(
+        ev for ev in plan_resp.output
+        if ev.type == "function_call" and ev.name == "generate_keras_schema"
+    )
+    tool_inputs = json.loads(call_evt.arguments)
+
+
+    # STEP 3: actually generate your notebook code 
+    chat = openai.chat.completions.create(
+        model=OPENAI_MODEL,
+        temperature=0.0,
+        messages=[
+            {"role":"system", "content":"Generate only the notebook code wrapped in <Code>…</Code>."},
+            {"role":"user",   "content": json.dumps(tool_inputs, ensure_ascii=False)}
+        ]
+    )
+    notebook_code = chat.choices[0].message.content
+
+    # STEP 4: feed back only the function_call_output to finish the response
+    wrapup = openai.responses.create(
+        model="o4-mini",
+        previous_response_id=plan_resp.id,
+        input=[{
+            "type":    "function_call_output",
+            "call_id": call_evt.call_id,      
+            "output":  notebook_code
+        }],
+        store=True,
+        tools=tools
+    )
+
+    return wrapup.output_text
+
     
 """
     Initial prompt for Keras  
@@ -203,8 +255,9 @@ def solve_competition_keras(
     downloaded_paths = download_train_file(
         comp_meta["slug"],
         comp_folder,
-        comp_struct["training_files"]
+        comp_struct["training_files"]+[comp_struct["submission_file"]]
     )
+    
 
     # 3) profile each one
     all_schemas = {}
@@ -222,6 +275,17 @@ def solve_competition_keras(
 
         all_schemas[p.name] = compacted
 
+    temp_dir, tabular_path = extract_tabular(f"test/{slug}/{slug}/{comp_struct["submission_file"]}")
+    sep = '\t' if tabular_path.lower().endswith('.tsv') else ','
+
+    try:
+        df = pd.read_csv(tabular_path, sep=sep, encoding='utf-8')
+    except UnicodeDecodeError:
+        df = pd.read_csv(tabular_path, sep=sep, encoding='latin1')
+
+    submission_style = df.head(0).to_dict(orient='records')
+
+    print("Sample submission columns:", df.columns.tolist())
 
     comp_struct["data_profiles"] = all_schemas
 
@@ -251,79 +315,78 @@ def solve_competition_keras(
         examples.append((rank, kr, score, prep_steps, layer_code))
 
 
-
-    payload = {
-        "competition_slug":                 slug,
+        payload = {
         "competition_problem_description":  comp_struct["competition_problem_description"],
-        "competition_problem_type":         comp_struct["competition_problem_type"],
         "competition_problem_subtype":      comp_struct["competition_problem_subtype"],
         "dataset_metadata":                 comp_struct["dataset_metadata"],
         "data_profiles":                    comp_struct["data_profiles"],
         "files_preprocessing_instructions": comp_struct["files_preprocessing_instructions"],
-        "training_files":                   comp_struct["training_files"],
-        "all_files":                        all_files,
-        "examples":                         [
-            {
-              "rank":               rank,
-              "kernel_ref":         kr,
-              "score":              sc,
-              "preprocessing_steps": prep,
-              "model_layers_code":   layers
-            }
-            for (rank, kr, sc, prep, layers) in examples
+        "submission_example":               submission_style,
+        "files_list":                       comp_struct["files_list"],
+        "examples": [
+            {"score": sc, "preprocessing_steps": prep, "model_layers_code": layers}
+            for (_, _, sc, prep, layers) in examples
         ]
+        
     }
 
-    if len(comp_struct["target_column"]) <= MAX_CLASSES:
-        payload["target_columns"] = comp_struct["target_column"]
-    else:
-        payload["target_column_ranges"] = range_specs
-
+    # 1) Initial Responses API call
     system_msg = {
         "role": "system",
         "content": (
-            "You are a world-class deep learning engineer and data scientist.  "
-            "do not emit plain text.  Populate *only* its `notebook_code` argument "
-            "(no other keys)."  
+            "You are a world-class deep learning engineer and data scientist. "
+            "Do not emit plain text. Populate *only* the `notebook_code` argument "
+            "(no other keys)."
         )
     }
+    user_msg   = { "role":"user",   "content": json.dumps(payload, ensure_ascii=False) }
 
-    user_msg = {
-        "role": "user",
-        "content": json.dumps(payload, ensure_ascii=False)
-    }
-
-    response = openai.chat.completions.create(
-        model=OPENAI_MODEL,
-        temperature=0.0,
-        messages=[system_msg, user_msg],
-        functions=[generate_keras_schema],
-        function_call={"name": "generate_keras_schema"}
+    response = openai.responses.create(
+        model="o4-mini",
+        input=[system_msg, user_msg],
+        tools=tools,
+        store=True
     )
 
-    msg    = response.choices[0].message
-    result = json.loads(msg.function_call.arguments)
-    code   = result["notebook_code"]
+    func = next(
+        ev for ev in response.output
+        if ev.type == "function_call"
+        and ev.name == "generate_keras_schema"
+    )
+    args = json.loads(func.arguments)
 
-    return postprocess_code(code) 
 
+    args.pop("notebook_code", None)
+    # run your local impl
+    notebook = generate_keras_schema_impl(**args)
 
-def solve_competition_tuner(slug: str, simplified: bool = 0) -> str:
+    # wrapup and get final
+    final = openai.responses.create(
+        model=OPENAI_MODEL,
+        input=response.output + [{
+            "type":    "function_call_output",
+            "call_id": func.call_id,
+            "output":  notebook
+        }],
+        tools=tools
+    )
+
+    return postprocess_code(final.output_text)
+
+def solve_competition_tuner(slug: str) -> str:
     base = Path(f"test/{slug}")
 
     comp_struct = json.loads((base / f"{slug}_desc.json").read_text(encoding="utf-8"))
     # load the existing keras solution
     existing_solution_code = (base / f"{slug}_solution.py").read_text(encoding="utf-8")
 
-    if simplified == 1:
-        # 1) Select the best‐matching profile key:
-        profile_key = select_hyperparameter_profile(comp_struct, HYPERPARAMETER_BANK)
-        # 2) Pull out that single profile dict:
-        chosen_profile = HYPERPARAMETER_BANK[profile_key]
-        print(chosen_profile)
-        hp_payload = chosen_profile
-    else:
-        hp_payload = HYPERPARAMETER_BANK
+    # 1) Select the best‐matching profile key:
+    profile_key = select_hyperparameter_profile(comp_struct, HYPERPARAMETER_BANK)
+    # 2) Pull out that single profile dict:
+    chosen_profile = HYPERPARAMETER_BANK[profile_key]
+    print(chosen_profile)
+    hp_payload = chosen_profile
+
 
     payload = {
         "competition_slug":                slug,
@@ -368,7 +431,7 @@ def solve_competition_tuner(slug: str, simplified: bool = 0) -> str:
     args      = json.loads(msg.function_call.arguments)
     tuner_code = args["tuner_code"]
     
-    return postprocess_code(tuner_code)
+    return tuner_code
 
 
 """
@@ -402,7 +465,7 @@ def followup_prompt(
         "content": (
             "You are a world-class deep learning engineer with an expertice in debugging the code.  "
             "Turn on the verbose and save the training and validtion accuracy and log of the last epoch in a json file (results.json). It will have the following keys: {training_accuracy, training_loss,validation_accuracy and validation_loss}  "
-            "Now you will be given a deep learning <Code> along with the <Error> log. Think step by step and generate a fix for this code. Rewrite the full code from the begining, fixing the bug. In you code, include the code that records the time of how long the model trains. Write the code in this format"
+            "Now you will be given a deep learning <Code> along with the <Error> log. Think step by step and generate a fix for this code, but only fix the issue mentioned, do not modify anything else. Rewrite the full code from the begining, fixing the bug. In you code, include the code that records the time of how long the model trains. Write the code in this format"
             "<Code>"
             "Your code goes here"
             "</Code>"    
@@ -431,5 +494,7 @@ def followup_prompt(
     if reply.startswith("<Code>") and reply.endswith("</Code>"):
         return reply[len("<Code>"):-len("</Code>")].strip()
     return reply
+
+
 
 

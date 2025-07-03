@@ -12,8 +12,9 @@ from config import INDEX_DIR
 
 def find_similar_ids(
     desc_json: str,
-    top_k: int = 5,
-    exclude_competition: str = None
+    top_k: int = 5, 
+    exclude_competition: str = None,
+    cat_weight: float = 3.0  # how important the categorical weights are 
 ) -> List[Tuple[str, float]]:
     """
     Given the path to a competition description JSON, return the top_k most-similar
@@ -55,8 +56,13 @@ def find_similar_ids(
         meta.get("competition_problem_type", "Unknown"),
         meta.get("competition_problem_subtype", "Unknown"),
         meta.get("competition_dataset_type", "Unknown"),
+        meta.get("evaluation_metrics", "Unknown"),
+
     ]
     cat_vec = ohe.transform([cats])[0].astype(np.float32)
+
+    # ——— BOOST CATEGORICAL SIGNAL ———
+    cat_vec *= cat_weight
 
     # 5) build final query vector and L2-normalize
     qv = np.concatenate([text_vec, cat_vec], axis=0)
@@ -65,7 +71,7 @@ def find_similar_ids(
     # 6) search
     D, I = index.search(qv.reshape(1, -1), top_k + (1 if exclude_competition else 0))
 
-    # 7) collect results (skipping any excluded slug)
+    # 7) collect results (skipping any excluded slug) optional, for debuggin
     results: List[Tuple[str, float]] = []
     for idx, score in zip(I[0], D[0]):
         rid = row_ids[idx]

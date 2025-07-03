@@ -73,20 +73,20 @@ if __name__ == "__main__":
         sys.exit(0)
 
     elif cmd == "code":
-        if len(sys.argv) < 5:
-            print("Usage: python rag.py code <top-k> <simplified 0|1 only for keras tuner> <keras-tuner 0|1> <slug: optional, to start at a certain competition>")
+        if len(sys.argv) < 4:
+            print("Usage: python rag.py code <top-k> <keras-tuner 0|1> <slug: optional, to start at a certain competition>")
             sys.exit(1)
 
         top_k = int(sys.argv[2])  
-        simplified = bool(int(sys.argv[3]))    
-        kt    = bool(int(sys.argv[4]))
-        comp = None if len(sys.argv) < 6 else sys.argv[5]
+        kt    = bool(int(sys.argv[3]))
+        comp = None if len(sys.argv) < 5 else sys.argv[4]
 
         run = 1 if comp is None else 0
 
         if kt == 0: 
-            
             for slug in test: 
+                if(slug == "conway-s-reverse-game-of-life_solution"): break
+
                 if run == 1 or slug == comp: 
                     run = 1
                     print(slug)
@@ -105,7 +105,6 @@ if __name__ == "__main__":
                     print(slug)
                     notebook_code = solve_competition_tuner(
                         slug = slug, 
-                        simplified=simplified
                     )
                     out_path = Path(f"test/{slug}/{slug}_kt_solution.py")
                     out_path.write_text(notebook_code, encoding="utf-8")

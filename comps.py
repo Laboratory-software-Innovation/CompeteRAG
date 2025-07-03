@@ -88,6 +88,4 @@ test = [
 
 "nyc-taxi-trip-duration",
 "crowdflower-weather-twitter",
-
-
 ]

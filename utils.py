@@ -7,6 +7,7 @@ import csv
 from pathlib import Path
 import py7zr
 import gzip
+import openai
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -16,7 +17,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 
-from config import ENCODER, MAX_NOTEBOOK_TOKENS, kaggle_api
+from config import kaggle_api
 
 from typing import Any, List, Tuple, Dict, Union,Optional
 
@@ -46,14 +47,6 @@ def fetch_competition_page_html(slug: str, driver=None) -> str:
 def ensure_folder(path: Path):
     path.mkdir(parents=True, exist_ok=True)
     return path
-
-def truncate_to_token_limit(text: str, max_tokens: int = MAX_NOTEBOOK_TOKENS) -> str:
-    tokens = ENCODER.encode(text)
-    if len(tokens) <= max_tokens:
-        return text
-    return ENCODER.decode(tokens[:max_tokens])
-
-
 
 
 def parse_competition_data_tab(html: str) -> dict:
@@ -267,9 +260,7 @@ def compact_profile_for_llm(
         "target_summary": truncated_ts
     }
 
-
-# Helper: your existing run collapsing logic, e.g.:
-
+#Helper for large schemas
 def _collapse_schema_runs(schema: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
     pat = re.compile(r"^(.*?)(\d+)$")
     runs, current = [], [schema[0]]

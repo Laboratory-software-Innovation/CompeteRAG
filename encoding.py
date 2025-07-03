@@ -66,6 +66,7 @@ def build_index(
         "competition_problem_type",
         "competition_problem_subtype",
         "competition_dataset_type",
+        "evaluation_metrics"
         # "framework",    # for debugging, not necessary
     ]
     # fill any missing
