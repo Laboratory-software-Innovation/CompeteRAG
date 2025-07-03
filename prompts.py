@@ -8,6 +8,7 @@ label_competition_schema = {
         "Retrieve:\n"
         "  - training_files: Based on dataset_metadata, files_list give [<string>, …],  an array of all training tabular files that need to be downloaded\n"
         "  - target_column: an array of all column names in the dataset that must be predicted\n"
+        "  - evaluation_metrics: metrics used to evaluate the solution\n"
         "  - submission_file: a string containing an exact name of a file that can be used a submission example"
         "Emit ONLY these two fields as JSON—no extra keys, no prose, no markdown."
     ),
@@ -18,6 +19,34 @@ label_competition_schema = {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "an array of all column names in the dataset that must be predicted"
+            },
+            "evaluation_metrics": {
+                "type": "string",
+                "description": "Pick one of the following based on the competition metadata:\n",
+                "enum": [
+                    "MAP@N – Mean Average Precision",
+                    "RMSLE – Root Mean Squared Logarithmic Error",
+                    "RMSE – Root Mean Squared Error",
+                    "ROC Curve",
+                    "MAPE – Mean Absolute Percentage Error",
+                    "Accuracy",
+                    "MCC – Matthews Correlation Coefficient",
+                    "R2 – Coefficient of Determination",
+                    "Log Loss",
+                    "MedAE – Median Absolute Error",
+                    "Micro-averaged F1-Score",
+                    "SMAPE – Symmetric Mean Absolute Percentage Error",
+                    "MAE – Mean Absolute Error",
+                    "Quadratic Weighted Kappa",
+                    "Adjusted Rand Index",
+                    "AUCROC",
+                    "Multi-class Log Loss",
+                    "Macro F1 Score",
+                    "F1 Score",
+                    "Multi-class classification accuracy",
+                    "Categorization accuracy",
+                    "Classification accuracy"
+                ]
             },
             "files_list": {
                 "type": "array",
@@ -39,7 +68,7 @@ label_competition_schema = {
                 "description": "Based on dataset_metadata give a string containing the exact name of the file that can be used as a submission example."
             }
         },
-        "required": ["target_column", "training_files","submission_file"]
+        "required": ["target_column", "evaluation_metrics", "training_files","submission_file"]
     }
 }
 
@@ -74,7 +103,7 @@ ask_structured_schema = {
             },
             "competition_problem_subtype": {
                 "type": "string",
-                    "enum": [
+                "enum": [
                     "binary-classification",
                     "multiclass-classification",
                     "multi-label-classification",
@@ -153,8 +182,9 @@ structure_and_label_competition_schema = {
         "Given raw Kaggle competition metadata, dataset metadata and a list of files, "
         "return exactly the following fields as JSON:\n"
         "  - competition_problem_type (\"regression\" or \"classification\")\n"
-        "  - competition_problem_subtype (lower-case, single, concise, lowercase‐and‐hyphenated phrase (e.g. “binary classification”, “multiclass classification”, “multi-label classification”, “time-series forecasting”, “continuous regression”, “ordinal regression”, etc. or any other that fits.)\n"
+        "  - competition_problem_subtype (lower-case, single, concise, lowercase‐and‐hyphenated phrase (e.g. “binary classification”, “multiclass classification”, “multi-label classification”, “time-series forecasting”, “continuous regression”, “ordinal regression”, etc. or any other)\n"
         "  - competition_problem_description (dense, non-repetitive description of the goal)\n"
+        "  - evaluation_metrics metrics used to evaluate the solution\n"
         "  - dataset_metadata (plain-English paragraph rewrite of the original)\n"
         "  - competition_dataset_type (one of: Tabular, Time-series, Text, Image, Audio, Video, Geospatial, Graph, Multimodal)\n"
         "  - target_column (array of the exact label column name(s) in the training files)\n"
@@ -175,18 +205,51 @@ structure_and_label_competition_schema = {
             },
             "competition_problem_subtype": {
                 "type": "string",
-                "enum": [
-                    "binary-classification",
-                    "multiclass-classification",
-                    "multi-label-classification",
-                    "time-series-forecasting",
-                    "continuous-regression",
-                    "quantile-regression",
-                    "multi-output-regression",
-                    "ordinal-regression",
-                    "missing-value-imputation"
-                ],
-            "description": "Lower-case, hyphenated subtype phrase."
+                "description": "Pay attention to the problem evaluation and submission wording to pick the exact subtype. Be careful not to confuse:\n"
+                            "- multiclass vs. multi-label classification\n"
+                            "- continuous-regression vs. quantile-regression\n"
+                            "- multi-output-regression vs. multi-label-classification\n"
+                            "- ordinal-regression vs. multiclass-classification\n"
+                            "- missing-value-imputation vs. regression\n"
+                            "- time-series-forecasting vs. non-temporal regression",
+                "oneOf": [
+                    {
+                    "const": "binary-classification",
+                    "description": "Predict one of two mutually exclusive classes for each example."
+                    },
+                    {
+                    "const": "multiclass-classification",
+                    "description": "Predict one class out of more than two mutually exclusive classes."
+                    },
+                    {
+                    "const": "multi-label-classification",
+                    "description": "Assign one or more non-exclusive labels to each example."
+                    },
+                    {
+                    "const": "time-series-forecasting",
+                    "description": "Predict future values given observations ordered in time."
+                    },
+                    {
+                    "const": "continuous-regression",
+                    "description": "Predict a single continuous numeric target."
+                    },
+                    {
+                    "const": "quantile-regression",
+                    "description": "Predict specified quantiles (e.g. 0.1, 0.5, 0.9) of a continuous distribution."
+                    },
+                    {
+                    "const": "multi-output-regression",
+                    "description": "Predict multiple continuous targets simultaneously."
+                    },
+                    {
+                    "const": "ordinal-regression",
+                    "description": "Predict discrete ordered categories (e.g. ratings)."
+                    },
+                    {
+                    "const": "missing-value-imputation",
+                    "description": "Predict and fill in missing entries in the dataset."
+                    }
+                ]
             },
             "competition_problem_description": {
                 "type": "string",
@@ -203,29 +266,31 @@ structure_and_label_competition_schema = {
             },
             "evaluation_metrics": {
                 "type": "string",
-                "description": "Pick one of the following based on the competition metadata:\n"
-                    "  - MAP@N – Mean Average Precision\n"
-                    "  - RMSLE – Root Mean Squared Logarithmic Error\n"
-                    "  - RMSE – Root Mean Squared Error\n"
-                    "  - ROC Curve\n"
-                    "  - MAPE – Mean Absolute Percentage Error\n"
-                    "  - Accuracy\n"
-                    "  - MCC – Matthews Correlation Coefficient\n"
-                    "  - R2 – Coefficient of Determination\n"
-                    "  - Log Loss\n"
-                    "  - MedAE – Median Absolute Error\n"
-                    "  - Micro-averaged F1-Score\n"
-                    "  - SMAPE – Symmetric Mean Absolute Percentage Error\n"
-                    "  - MAE – Mean Absolute Error\n"
-                    "  - Quadratic Weighted Kappa\n"
-                    "  - Adjusted Rand Index\n"
-                    "  - AUCROC\n"
-                    "  - Multi-class Log Loss\n"
-                    "  - Macro F1 Score\n"
-                    "  - F1 Score\n"
-                    "  - Multi-class classification accuracy\n"
-                    "  - Categorization accuracy\n"
-                    "  - Classification accuracy\n"
+                "description": "Pick one of the following based on the competition metadata:\n",
+                "enum": [
+                    "MAP@N – Mean Average Precision",
+                    "RMSLE – Root Mean Squared Logarithmic Error",
+                    "RMSE – Root Mean Squared Error",
+                    "ROC Curve",
+                    "MAPE – Mean Absolute Percentage Error",
+                    "Accuracy",
+                    "MCC – Matthews Correlation Coefficient",
+                    "R2 – Coefficient of Determination",
+                    "Log Loss",
+                    "MedAE – Median Absolute Error",
+                    "Micro-averaged F1-Score",
+                    "SMAPE – Symmetric Mean Absolute Percentage Error",
+                    "MAE – Mean Absolute Error",
+                    "Quadratic Weighted Kappa",
+                    "Adjusted Rand Index",
+                    "AUCROC",
+                    "Multi-class Log Loss",
+                    "Macro F1 Score",
+                    "F1 Score",
+                    "Multi-class classification accuracy",
+                    "Categorization accuracy",
+                    "Classification accuracy"
+                ]
             },
             "target_column": {
                 "type": "array",
@@ -274,7 +339,6 @@ structure_and_label_competition_schema = {
         ]
     }
 }
-
 
 tools = [
     {
@@ -380,26 +444,20 @@ tools = [
                 "        – batch_size=64–256, metrics=[tf.keras.metrics.Precision(), tf.keras.metrics.Recall(), tfa.metrics.F1Score(num_classes=n_classes)]\n"
                 "    * **regression:**\n"
                 "        – activation=linear, loss=mean_squared_error\n"
-                "        – batch_size=32–256, metrics=[tf.keras.metrics.RootMeanSquaredError(), tf.keras.metrics.MeanAbsoluteError(), tf.keras.metrics.RSquare()]\n"
+                "        – batch_size=32–256, metrics=[tf.keras.metrics.RootMeanSquaredError(), tf.keras.metrics.MeanAbsoluteError()]\n"
                 "    * **time-series forecasting:**\n"
                 "        – use chronological split\n"
                 "        – activation=linear, loss=mean_squared_error\n"
                 "        – epochs=10–50, metrics=[tf.keras.metrics.RootMeanSquaredError()]\n"
                 ")"
-            
             "8. **Compile the model with the Adam optimizer and the chosen loss and metrics\n"
             "9. **Callbacks & Training**:\\n\"  \n"
             "   start_time = time.time()  ← **capture before fit**\\n\"  \n"
             "   history = model.fit(X_train_proc, y_train, validation_data=(X_val_proc, y_val), epochs=100, callbacks=callbacks)\\n\"  \n"
             "   duration = time.time() - start_time  ← **compute after fit**\\n\"  \n"
             "10. **Evaluation & Logging**:\\n\"  \n"
-            "   results = {\\n\"  \n"
-            "       'training_accuracy': train_accuracy,\\n\"  \n"
-            "       'validation_accuracy': val_accuracy,\\n\"  \n"
-            "       'validation_loss': val_loss,\\n\"  \n"
-            "       'training_loss': train_loss,\\n\"  \n"
-            "       'training_duration': duration\\n\"  \n"
-            "   }\\n\"  \n"
+            "   Don't user tensorflow_addons"
+            "   Turn on the verbose and save the training and validtion accuracy and log of the last epoch in a json file (results.json). It will have the following keys: {training_accuracy, training_loss,validation_accuracy and validation_loss}\n"
             "   with open('results.json','w') as f: json.dump(results,f)\\n\"  \n"
             "11. **Prediction & Submission**:\n"
                 "raw_preds = model.predict(X_test_proc)\n"
@@ -500,6 +558,227 @@ tools = [
         "strict": True     # ← enforce valid JSON
     }
 ] 
+
+
+
+# tools = [
+    # {
+    #     "name": "generate_keras_schema",  
+    #     "type": "function",
+    #     "description": (
+    #         "***Generate and save a runnable Python code wrapped in <Code>…</Code> in a singe `notebook_code` json field:\\n"  
+    #         "The generated code must implement:\n"
+    #         "1. **Reproducibility**: set seeds for Python, NumPy, scikit-learn, and TensorFlow (or PyTorch).\n"
+    #         "2. **Imports**:\\n\"  \n"
+    #         "   - `pandas`, `numpy`\\n\"  \n"
+    #         "   - `sklearn.model_selection.train_test_split`\\n\"  \n"
+    #         "   - `sklearn.impute.SimpleImputer`\\n\"  \n"
+    #         "   - `sklearn.compose.ColumnTransformer`\\n\"  \n"
+    #         "   - `sklearn.preprocessing.StandardScaler`,`OneHotEncoder`,`LabelEncoder`  ← **added here**\\n\"  \n"
+    #         "   - `sklearn.pipeline.Pipeline`\\n\"  \n"
+    #         "   - `tensorflow` (or `torch`)\\n\"  \n"
+    #         "   - `tensorflow.keras.callbacks.EarlyStopping,ModelCheckpoint`\\n\"  \n"
+    #         "   - `json`, `time`\\n\"  \n"
+    #         "   When using OneHotEncoding, use sparse_output=False instead of sparse\n"
+    #        "3. Data Loading, Split & Target Encoding:\n"
+    #         "Read each file in files_list into train_dfs\n"
+    #         "If any filename endswith 'test.csv', load it into df_test, else df_test=None\n"
+    #         "Infer id_col & target_columns from submission_example header\n"
+    #         "df = pd.concat(train_dfs, ignore_index=True)\n"
+    #         "# Target encoding immediately after df is final:\n"
+    #         "col = target_columns[0]\n"
+    #         "if competition_problem_subtype=='binary-classification':\n"
+    #         "    from sklearn.preprocessing import LabelEncoder\n"
+    #         "    le=LabelEncoder().fit(df[col].astype(str))\n"
+    #         "    y_enc=le.transform(df[col].astype(str)).astype(int)\n"
+    #         "    classes_=le.classes_\n"
+    #         "elif competition_problem_subtype in ['multiclass-classification','multiclass classification','ordinal-regression']:\n"
+    #         "    from sklearn.preprocessing import LabelEncoder\n"
+    #         "    le=LabelEncoder().fit(df[col].astype(str))\n"
+    #         "    y_enc=le.transform(df[col].astype(str))\n"
+    #         "    classes_=le.classes_\n"
+    #         "elif competition_problem_subtype=='multi-label classification':\n"
+    #         "    from sklearn.preprocessing import MultiLabelBinarizer\n"
+    #         "    mlb=MultiLabelBinarizer()\n"
+    #         "    y_enc=mlb.fit_transform(df[target_columns])\n"
+    #         "    classes_=mlb.classes_\n"
+    #         "elif competition_problem_subtype in ['continuous-regression','quantile-regression','multi-output regression','missing-value-imputation']:\n"
+    #         "    y_enc=df[target_columns].astype(float).values\n"
+    #         "elif competition_problem_subtype in ['time-series-forecasting','multivariate-time-series-forecasting']:\n"
+    #         "    y_enc=df[target_columns].values\n"
+    #         "else:\n"
+    #         "    y_enc=df[target_columns].values\n"
+    #         "X=df.drop(columns=target_columns+[id_col],errors='ignore')\n"
+    #         "# now either use provided df_test or split off 20% for test:\n"
+    #         "if df_test is None:\n"
+    #         "    X_train,X_val,y_train,y_val=train_test_split(\n"
+    #         "        X,y_enc,\n"
+    #         "        test_size=0.2,\n"
+    #         "        stratify=y_enc if competition_problem_subtype in ['binary-classification','multiclass-classification','multiclass classification'] else None,\n"
+    #         "        random_state=42)\n"
+    #         "    train_ids=X_train[id_col]\n"
+    #         "    test_ids =X_val[id_col]\n"
+    #         "else:\n"
+    #         "    X_train=X\n"
+    #         "    y_train=y_enc\n"
+    #         "    train_ids=df[id_col]\n"
+    #         "    test_ids =df_test[id_col]\n"
+    #         "    X_val   =df_test.drop(columns=target_columns+[id_col],errors='ignore')\n"
+    #         "\n"
+    #         "4. Feature Engineering:\n"
+    #             "Automatically drop columns with all missing values\n"
+    #             "Identify categorical columns and remove those with extremely high cardinality (eg >50 unique)\n"
+    #             "Optionally apply any additional simple transformations you deem useful\n"
+    #         "5. **Preprocessing Pipeline**:\n"
+    #             "   - Auto-detect numeric vs. categorical via `df.select_dtypes`.\n"
+    #             "   - Build a `ColumnTransformer` with median‐imputed & scaled numerics, and most‐frequent‐imputed & OHE categoricals (cap at 50 cats).\n"
+    #             "   - Fit on train → transform train/val/test.\n"
+    #         "6. **Fix numbering**: ensure your sections run 0→11 with no gaps or duplicates.\n"
+    #         "7. **Model Architecture:**\n"
+    #             "- Build at least two hidden layers with BatchNormalization and Dropout after each\n"
+    #             "- Set output units = number of target_columns for multilabel/multiclass, else 1\n"
+    #             "- Choose depth & width by data shape: shallow/narrow for small datasets, deeper/wider for large datasets, scale units ≈ min(features×2,1024)\n"
+    #             "- Leverage provided `examples` but adjust architecture based on dataset size, feature count, and target count\n"
+    #             "- **Architectural Guidelines:**\n"
+    #             "   - **Choose by data size:**\n"
+    #             "     • If `n_samples < 10000` or `n_features < 100`:\n"
+    #             "         – Build **two** Dense layers of sizes:\n"
+    #             "             [min(n_features*2, 128), min(n_features, 64)]\n"
+    #             "         – **No** BatchNormalization; Dropout ≤ 0.3\n"
+    #             "     • Else:\n"
+    #             "         – Build **2–4** Dense layers of sizes:\n"
+    #             "             [min(n_features*i, 1024) for i in (2, 1, 0.5, 0.25)] (drop any <16 units)\n"
+    #             "         – After each: BatchNormalization() + Dropout(≤0.4)\n"
+    #             "\n"
+    #             "***For all hidden layers (except the final output), use ReLU activation***\n"
+    #             "  - **Task subtype → head, loss, batch & metrics:**\n"
+    #             "    **(Note: activation applies only to the final/output layer)**\n"
+    #             "    * **binary classification:**\n"
+    #             "        – activation=sigmoid, loss=binary_crossentropy\n"
+    #             "        – batch_size=64–256, metrics=['accuracy', tf.keras.metrics.AUC(), tfa.metrics.MatthewsCorrelationCoefficient()]\n"
+    #             "    * **multiclass classification (MAP@N):**\n"
+    #             "        – activation=softmax, loss=sparse_categorical_crossentropy\n"
+    #             "        – batch_size=32–128, metrics=['accuracy', tf.keras.metrics.TopKCategoricalAccuracy(k=N, name=f'top_{N}_accuracy')]\n"
+    #             "        – at inference: take the top-N softmax probabilities for submission\n"
+    #             "    * **multilabel classification:**\n"
+    #             "        – activation=sigmoid, loss=binary_crossentropy\n"
+    #             "        – batch_size=64–256, metrics=[tf.keras.metrics.Precision(), tf.keras.metrics.Recall(), tfa.metrics.F1Score(num_classes=n_classes)]\n"
+    #             "    * **regression:**\n"
+    #             "        – activation=linear, loss=mean_squared_error\n"
+    #             "        – batch_size=32–256, metrics=[tf.keras.metrics.RootMeanSquaredError(), tf.keras.metrics.MeanAbsoluteError(), tf.keras.metrics.RSquare()]\n"
+    #             "    * **time-series forecasting:**\n"
+    #             "        – use chronological split\n"
+    #             "        – activation=linear, loss=mean_squared_error\n"
+    #             "        – epochs=10–50, metrics=[tf.keras.metrics.RootMeanSquaredError()]\n"
+    #             ")"
+    #         "8. **Compile the model with the Adam optimizer and the chosen loss and metrics\n"
+    #         "9. **Callbacks & Training**:\\n\"  \n"
+    #         "   start_time = time.time()  ← **capture before fit**\\n\"  \n"
+    #         "   history = model.fit(X_train_proc, y_train, validation_data=(X_val_proc, y_val), epochs=100, callbacks=callbacks)\\n\"  \n"
+    #         "   duration = time.time() - start_time  ← **compute after fit**\\n\"  \n"
+    #         "10. **Evaluation & Logging**:\\n\"  \n"
+    #         "   Don't user tensorflow_addons"
+    #         "   Turn on the verbose and save the training and validtion accuracy and log of the last epoch in a json file (results.json). It will have the following keys: {training_accuracy, training_loss,validation_accuracy and validation_loss}\n"
+    #         "   with open('results.json','w') as f: json.dump(results,f)\\n\"  \n"
+    #         "11. **Prediction & Submission**:\n"
+    #             "raw_preds = model.predict(X_test_proc)\n"
+    #             "***if competition_problem_subtype == ['multiclass','multiclass classification','multi-label classification` ]: final = le.inverse_transform(raw_preds.argmax(axis=1))\n"
+    #             "***elif competition_problem_subtype == 'binary-classification': final = (raw_preds.flatten() > 0.5).astype(int)\n"
+    #             "***else: final = raw_preds.flatten()\n"
+    #             "if len(target_columns) == 1:\n"
+    #             "    submission = pd.DataFrame({id_col: test_ids, target_columns[0]: final})\n"
+    #             "else:\n"
+    #             "    submission = pd.DataFrame(final, columns=target_columns)\n"
+    #             "    submission.insert(0, id_col, test_ids)\n"
+    #             "submission.to_csv('submission_result.csv', index=False)\n"
+            
+    #     ),
+    #     "parameters": {
+    #         "type": "object",
+    #         "additionalProperties": False,
+    #         "properties": {
+    #             "competition_problem_description": {
+    #                 "type": "string",
+    #                 "description": "Dense competition description giving the core goal."
+    #             },
+    #             "competition_problem_subtype": {
+    #                 "type": "string",
+    #                 "description": "One of:\n"
+    #                     "  - binary-classification\n"
+    #                     "  - multiclass-classification\n"
+    #                     "  - multiclass classification\n"
+    #                     "  - multi-label classification\n"
+    #                     "  - continuous-regression\n"
+    #                     "  - quantile-regression\n"
+    #                     "  - multi-output regression\n"
+    #                     "  - time-series-forecasting\n"
+    #                     "  - multivariate-time-series-forecasting\n"
+    #                     "  - ordinal-regression\n"
+    #                     "  - missing-value-imputation\n"
+    #                     "Rely on this to choose splits, loss, activation, etc."
+    #             },
+    #             "dataset_metadata": {
+    #                 "type": "string",
+    #                 "description": "Full NLP explanation of the dataset, the columns that need to be predicted and the training files provided"
+    #             },
+    #             "data_profiles": {
+    #                 "type": "object",
+    #                 "additionalProperties": False, 
+    #                 "properties": {}  
+    #             },
+    #             "files_preprocessing_instructions": {
+    #                 "type": "string",
+    #                 "description": "Instructions for how to preprocess the raw files."
+    #             },
+    #             "submission_example": {
+    #                 "type": "string", 
+    #                 "description": (  
+    #                     "Contains the target columns ***not including the id column*** that need to be predicted and the example format of columns and values that needs to be outputted to the submission_results.csv`\n\
+    #                     Rely on the `submission_example` for how to format the sumbission and pay attentiton for what types of values there are\n"                
+    #                 )
+    #             },
+    #             "files_list": {
+    #                 "type": "array",
+    #                 "items": {"type": "string"},
+    #                 "description": " list of all files included in the competition, decide whether there are testing files and whether you need to split the training dataset"
+    #             },
+    #             "examples": {
+    #                 "type": "array",
+    #                 "description": "Retrieved preprocessing and code snippets from solutions of top similar competitions, rely on them ",
+    #                 "items": {
+    #                     "type": "object",
+    #                     "additionalProperties": False,
+    #                     "properties": {
+    #                         "score":                {"type":"number"},
+    #                         "preprocessing_steps":  {
+    #                             "type":"array",
+    #                             "items":{"type":"string"}
+    #                         },
+    #                         "model_layers_code":    {"type":"string"}
+    #                     },
+    #                     "required":["score","preprocessing_steps","model_layers_code"]
+    #                 }
+    #             },
+    #             "notebook_code": {
+    #                 "type": "string",
+    #                 "description": "The complete runnable Python notebook code wrapped in <Code>…</Code>."
+    #             }
+    #         },
+    #         "required": [
+    #             "competition_problem_description",
+    #             "competition_problem_subtype",
+    #             "dataset_metadata",
+    #             "data_profiles",
+    #             "files_preprocessing_instructions",
+    #             "submission_example",
+    #             "files_list",
+    #             "examples",
+    #             "notebook_code"
+    #         ]
+    #     },
+    #     "strict": True     # ← enforce valid JSON
+    # }
+#] 
 
 
 

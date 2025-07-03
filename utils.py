@@ -89,53 +89,51 @@ def parse_competition_data_tab(html: str) -> dict:
 def parse_competition_metadata(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
 
-    # 1) Title: first <h1>
+    def grab_section(heading_text):
+        hdr = soup.find(
+            lambda tag: tag.name in ("h1","h2","h3")
+                        and tag.get_text(strip=True).lower().startswith(heading_text.lower())
+        )
+        if not hdr:
+            return ""
+        parts = []
+        for sib in hdr.next_siblings:
+            # stop at next heading
+            if sib.name and re.match(r"h[1-3]", sib.name, re.I):
+                break
+            if hasattr(sib, "get_text"):
+                text = sib.get_text(" ", strip=True)
+                if text:
+                    parts.append(text)
+        text = " ".join(parts)
+        # collapse multiple spaces/newlines
+        return re.sub(r"\s{2,}", " ", text).strip()
+
+    # 1) Title
     title_el = soup.find("h1")
     title = title_el.get_text(strip=True) if title_el else ""
 
+    # 2) Sections
+    overview = grab_section("Overview") or grab_section("Description") or ""
+    evaluation = grab_section("Evaluation")
+    dataset_desc = grab_section("Dataset Description")
+    submission_fmt = grab_section("Submission File")
 
-    # 3) Overview (Abstract) section
-    desc_div = soup.find("div", id="abstract")
-    overview = desc_div.get_text("\n").strip() if desc_div else ""
-
-    # 4) Evaluation section
-    eval_div = soup.find("div", id="evaluation")
-    evaluation = eval_div.get_text("\n").strip() if eval_div else ""
-
-    # 5) Dataset Description section
-    dataset_desc = ""
-    # find the <h2> that says "Dataset Description"
-    dd_heading = soup.find("h2", string=re.compile(r"Dataset Description", re.IGNORECASE))
-    if dd_heading:
-        # container is a few levels up—grab the next sibling after its parent block
-        container = dd_heading.find_parent("div", class_="sc-hRTuAS")  # or just find_parent("div")
-        if container:
-            # everything inside that container
-            dataset_desc = container.get_text("\n").strip()
-        else:
-            # fallback: grab everything until the next <h2> or section break
-            texts = []
-            for sib in dd_heading.next_siblings:
-                if sib.name and sib.name.startswith("h"):
-                    break
-                if getattr(sib, "get_text", None):
-                    texts.append(sib.get_text("\n"))
-            dataset_desc = "\n".join(texts).strip()
-
-    # Build the Markdown‐style description
-    parts = []
+    # 3) Build the combined markdown (if you still want it)
+    md_parts = []
     if overview:
-        parts.append("## Description\n\n" + overview)
+        md_parts.append("## Description\n\n" + overview)
     if evaluation:
-        parts.append("## Evaluation\n\n" + evaluation)
+        md_parts.append("## Evaluation\n\n" + evaluation)
     if dataset_desc:
-        parts.append("## Dataset Description\n\n" + dataset_desc)
-
-    full_desc = "\n\n".join(parts)
+        md_parts.append("## Dataset Description\n\n" + dataset_desc)
+    if submission_fmt:
+        md_parts.append("## Submission File\n\n" + submission_fmt)
+    combined_md = "\n\n".join(md_parts)
 
     return {
         "title": title,
-        "competition_metadata": full_desc, 
+        "competition_metadata": combined_md
     }
 
 

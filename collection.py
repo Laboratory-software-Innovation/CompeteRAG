@@ -25,30 +25,7 @@ from comps import train
 #Get the target column
 def label_competition(comp_meta: dict) -> dict:
 
-    metrics_block = (
-    "   MAP@N – Mean Average Precision\n"
-    "   RMSLE – Root Mean Squared Logarithmic Error\n"
-    "   RMSE – Root Mean Squared Error\n"
-    "   ROC Curve\n"
-    "   MAPE – Mean Absolute Percentage Error\n"
-    "   Accuracy\n"
-    "   MCC – Matthews Correlation Coefficient\n"
-    "   R2 – Coefficient of Determination\n"
-    "   Log Loss\n"
-    "   MedAE – Median Absolute Error\n"
-    "   Micro-averaged F1-Score\n"
-    "   SMAPE – Symmetric Mean Absolute Percentage Error\n"
-    "   MAE – Mean Absolute Error\n"
-    "   Quadratic Weighted Kappa\n"
-    "   Adjusted Rand Index\n"
-    "   AUCROC\n"
-    "   Multi-class Log Loss\n"
-    "   Macro F1 Score\n"
-    "   F1 Score\n"
-    "   Multi-class classification accuracy\n"
-    "   Categorization accuracy\n"
-    "   Classification accuracy\n"
-)
+    
     # build our messages
     system_msg = {
         "role": "system",
@@ -57,8 +34,7 @@ def label_competition(comp_meta: dict) -> dict:
             "Use the provided competition_metadata and dataset_metadata to fill exactly two fields:\n"
             "  1) target_column: an array of all column names in the dataset that must be predicted\n"
             "  2) training_files: Based on dataset_metadata give [<string>, …],  an array of all training tabular files that need to be downloaded\n"
-            "  3) evaluation_metric: based on the competition_metadata, retrieve the evaluation metrics used in the competition, pick one of the following"
-            f"{metrics_block}"
+            "  3) evaluation_metrics: based on the competition_metadata, retrieve the evaluation metrics used in the competition"
             "Emit ONLY those two keys as JSON—no extra keys, no prose, no markdown."
         )
     }
@@ -89,6 +65,7 @@ def label_competition(comp_meta: dict) -> dict:
     args = json.loads(content.function_call.arguments)
     target_cols    = args.get("target_column", [])
     training_files = args.get("training_files", [])
+    evaluation_metrics =  args.get("evaluation_metrics", [])
 
     # normalize to lists
     if isinstance(target_cols, str):
@@ -98,7 +75,8 @@ def label_competition(comp_meta: dict) -> dict:
 
     return {
         "target_column":  target_cols,
-        "training_files": training_files
+        "training_files": training_files,
+        "evaluation_metrics": evaluation_metrics
     }
 
 

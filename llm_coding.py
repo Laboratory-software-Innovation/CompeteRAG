@@ -213,6 +213,7 @@ def generate_keras_schema_impl(
         tools=tools
     )
 
+
     return wrapup.output_text
 
     
@@ -250,6 +251,7 @@ def solve_competition_keras(
     print(f"{slug}")
     print(comp_struct["files_list"])
     print(comp_struct["training_files"])
+    print(comp_struct["competition_problem_subtype"])
     print("----------------")
 
     downloaded_paths = download_train_file(
@@ -354,7 +356,6 @@ def solve_competition_keras(
         and ev.name == "generate_keras_schema"
     )
     args = json.loads(func.arguments)
-
 
     args.pop("notebook_code", None)
     # run your local impl
