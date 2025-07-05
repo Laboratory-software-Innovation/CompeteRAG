@@ -76,7 +76,7 @@ test = [
 "playground-series-s4e10",
 "playground-series-s4e9",
 
-"tabular-playground-series-oct-2022",
+# "tabular-playground-series-oct-2022",
 "tabular-playground-series-feb-2022",
 "tabular-playground-series-may-2022",
 "tabular-playground-series-jun-2022",
