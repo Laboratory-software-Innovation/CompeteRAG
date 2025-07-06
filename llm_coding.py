@@ -330,7 +330,8 @@ def solve_competition_keras(
             for (_, _, sc, prep, layers) in examples
         ]
         
-    }
+        }   
+        print(examples)
 
     # 1) Initial Responses API call
     system_msg = {

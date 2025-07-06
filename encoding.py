@@ -3,6 +3,7 @@ import pandas as pd
 import pickle
 import faiss
 from pathlib import Path
+from collections import OrderedDict
 
 
 from sentence_transformers import SentenceTransformer
@@ -27,92 +28,69 @@ from config import INDEX_DIR
 
 def build_index(
     df_structured: pd.DataFrame,
-    model_name: str = "voidism/diffcse-roberta-base-sts"
+    model_name: str = "voidism/diffcse-roberta-base-sts",
+    cat_weights: dict = {
+        "competition_problem_subtype": 3.0,
+        "competition_problem_type":      2.5,
+        "evaluation_metrics":           2.0,
+        "competition_dataset_type":     1.0
+    }
 ):
     """
-    1) Combine competition_problem_description + dataset_metadata per row.
-    2) Encode texts via DiffCSE (SentenceTransformer).
-    3) One-hot encode chosen categorical columns.
-    4) L2-normalize and concatenate [text_embedding | one_hot_vector].
-    5) Build and persist a FAISS inner-product index + all artifacts.
+    1) Combine competition_problem_description + dataset_metadata.
+    2) Encode text via SentenceTransformer.
+    3) One-hot encode each categorical column separately, scaling by its weight.
+    4) Concatenate [text_emb | weighted_ohe] and L2-normalize.
+    5) Persist all artifacts and build a FAISS IndexFlatIP.
     """
-    # ensure index directory exists
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
-
-    # --- 1) Combine text fields ---
     df = df_structured.copy()
     for col in ["competition_problem_description", "dataset_metadata"]:
         df[col] = df.get(col, "").fillna("")
+    df["combined_text"] = df["competition_problem_description"].str.strip() + "  " + df["dataset_metadata"].str.strip()
 
-    df["combined_text"] = (
-        df["competition_problem_description"].str.strip()
-        + "  "
-        + df["dataset_metadata"].str.strip()
-    )
-
-    # --- 2) Encode with SentenceTransformer (DiffCSE) ---
+    # 2) Text embeddings
     s_model = SentenceTransformer(model_name)
-    texts = df["combined_text"].tolist()
-    text_embeddings = s_model.encode(
-        texts,
+    text_embs = s_model.encode(
+        df["combined_text"].tolist(),
         batch_size=32,
         show_progress_bar=True,
         convert_to_numpy=True,
-        normalize_embeddings=True,  # already normalized, but we’ll normalize again later
-    )
+        normalize_embeddings=True
+    ).astype(np.float32)
 
-    # --- 3) One-hot encode categorical columns ---
-    cats = [
-        "competition_problem_type",
-        "competition_problem_subtype",
-        "competition_dataset_type",
-        "evaluation_metrics"
-        # "framework",    # for debugging, not necessary
-    ]
-    # fill any missing
-    for c in cats:
-        df[c] = df.get(c, "Unknown").fillna("Unknown")
+    # 3) Per-column OHE with weights
+    cat_weights = OrderedDict(cat_weights)
+    ohe_dict = OrderedDict()
+    cat_parts = []
+    for col, weight in cat_weights.items():
+        df[col] = df.get(col, "Unknown").fillna("Unknown")
+        ohe = OneHotEncoder(sparse_output=False, dtype=np.float32, handle_unknown="ignore")
+        enc = ohe.fit_transform(df[[col]]) * weight
+        ohe_dict[col] = ohe
+        cat_parts.append(enc)
 
-    ohe = OneHotEncoder(
-        sparse_output=False,
-        dtype=np.float32,
-        handle_unknown="ignore"
-    )
-    cat_matrix = ohe.fit_transform(df[cats].values)
+    cat_mat = np.hstack(cat_parts)
 
-    # --- 4) Concatenate & normalize ---
-    # ensure float32
-    if text_embeddings.dtype != np.float32:
-        text_embeddings = text_embeddings.astype(np.float32)
+    # 4) Combine & normalize
+    vectors = np.hstack([text_embs, cat_mat])
+    faiss.normalize_L2(vectors)
 
-    combined_vectors = np.hstack([text_embeddings, cat_matrix])
-    # L2-normalize for inner-product search
-    faiss.normalize_L2(combined_vectors)
-
-    # --- 5) Persist artifacts ---
-    # 5.1) Model name
+    # 5) Persist artifacts
     (INDEX_DIR / "text_encoder_model_name.txt").write_text(model_name, encoding="utf-8")
+    np.save(INDEX_DIR / "combined_embeddings.npy", vectors)
+    pickle.dump(df["kernel_ref"].tolist(),    (INDEX_DIR / "row_ids.pkl").open("wb"))
+    pickle.dump(ohe_dict,                     (INDEX_DIR / "onehot_encoder.pkl").open("wb"))
+    pickle.dump(cat_weights,                  (INDEX_DIR / "cat_weights.pkl").open("wb"))
 
-    # 5.2) OneHotEncoder
-    with open(INDEX_DIR / "onehot_encoder.pkl", "wb") as f:
-        pickle.dump(ohe, f)
-
-    # 5.3) Raw embeddings
-    np.save(INDEX_DIR / "combined_embeddings.npy", combined_vectors)
-
-    # 5.4) Build & save FAISS index
-    dim = combined_vectors.shape[1]
+    # Build FAISS index
+    dim = vectors.shape[1]
     index = faiss.IndexFlatIP(dim)
-    index.add(combined_vectors)
+    index.add(vectors)
     faiss.write_index(index, str(INDEX_DIR / "faiss_index.ip"))
-
-    # 5.5) Row IDs
-    row_ids = df["kernel_ref"].tolist()
-    with open(INDEX_DIR / "row_ids.pkl", "wb") as f:
-        pickle.dump(row_ids, f)
 
     print(f"[INFO] Saved model name → {INDEX_DIR/'text_encoder_model_name.txt'}")
     print(f"[INFO] Saved OHE → {INDEX_DIR/'onehot_encoder.pkl'}")
     print(f"[INFO] Saved embeddings → {INDEX_DIR/'combined_embeddings.npy'}")
-    print(f"[INFO] Saved FAISS index → {INDEX_DIR/'faiss_index.ip'}")
+    print(f"[defINFO] Saved FAISS index → {INDEX_DIR/'faiss_index.ip'}")
     print(f"[INFO] Saved row IDs → {INDEX_DIR/'row_ids.pkl'}")
