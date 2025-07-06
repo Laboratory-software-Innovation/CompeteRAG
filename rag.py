@@ -1,6 +1,6 @@
 import os
 import sys
-
+import time
 from pathlib import Path
 import pandas as pd
 from transformers import logging
@@ -78,6 +78,8 @@ if __name__ == "__main__":
             print("Usage: python rag.py code <top-k> <keras-tuner 0|1> <slug: optional, to start at a certain competition>")
             sys.exit(1)
 
+        start_time = time.time()
+
         top_k = int(sys.argv[2])  
         kt    = bool(int(sys.argv[3]))
         comp = None if len(sys.argv) < 5 else sys.argv[4]
@@ -112,8 +114,16 @@ if __name__ == "__main__":
                     print(f"[OK] Solution code written to {out_path}")
 
 
+        print("---------------------------")
+        print(start_time - time.time())
+        print("---------------------------")
+
+
     elif cmd == "followup":
-       # Usage: python rag.py followup <slug> <keras-tuner>
+
+        start_time = time.time()
+
+        # Usage: python rag.py followup <slug> <keras-tuner>
         if len(sys.argv) != 4:
             print("Usage: python rag.py followup <slug> <keras-tuner 0|1>")
             sys.exit(1)
@@ -132,6 +142,10 @@ if __name__ == "__main__":
         fixed = orig.with_name(orig.stem + "_fixed.py")
         fixed.write_text(corrected_code, encoding="utf-8")
         print(f"[OK] Corrected code written to {fixed}")
+
+        print("---------------------------")
+        print(start_time - time.time())
+        print("---------------------------")
 
     else:
         print_usage()

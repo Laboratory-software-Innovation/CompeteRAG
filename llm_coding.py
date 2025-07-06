@@ -227,6 +227,7 @@ def solve_competition_keras(
     top_k:           int = 5,
 ) -> str:
 
+
     driver = init_selenium_driver()
     html   = fetch_competition_page_html(slug, driver)
     comp_meta = parse_competition_metadata(html)
