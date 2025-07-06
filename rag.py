@@ -102,7 +102,7 @@ if __name__ == "__main__":
                     out_path.write_text(notebook_code, encoding="utf-8")
                     print(f"[OK] Solution code written to {out_path}")
                     print("---------------------------")
-                    print(start_time - time.time())
+                    print(time.time() - start_time)
                     print("---------------------------")
         else: 
             for slug in test: 
@@ -116,7 +116,7 @@ if __name__ == "__main__":
                     out_path.write_text(notebook_code, encoding="utf-8")
                     print(f"[OK] Solution code written to {out_path}")
                     print("---------------------------")
-                    print(start_time - time.time())
+                    print(time.time() - start_time)
                     print("---------------------------")
 
 
@@ -148,7 +148,7 @@ if __name__ == "__main__":
         print(f"[OK] Corrected code written to {fixed}")
 
         print("---------------------------")
-        print(start_time - time.time())
+        print(time.time() - start_time)
         print("---------------------------")
 
     else:
