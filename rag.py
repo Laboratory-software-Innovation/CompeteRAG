@@ -101,6 +101,9 @@ if __name__ == "__main__":
                     out_path = Path(f"test/{slug}/{slug}_solution.py")
                     out_path.write_text(notebook_code, encoding="utf-8")
                     print(f"[OK] Solution code written to {out_path}")
+                    print("---------------------------")
+                    print(start_time - time.time())
+                    print("---------------------------")
         else: 
             for slug in test: 
                 if run == 1 or slug == comp: 
@@ -112,11 +115,12 @@ if __name__ == "__main__":
                     out_path = Path(f"test/{slug}/{slug}_kt_solution.py")
                     out_path.write_text(notebook_code, encoding="utf-8")
                     print(f"[OK] Solution code written to {out_path}")
+                    print("---------------------------")
+                    print(start_time - time.time())
+                    print("---------------------------")
 
 
-        print("---------------------------")
-        print(start_time - time.time())
-        print("---------------------------")
+
 
 
     elif cmd == "followup":
