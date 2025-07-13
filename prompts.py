@@ -74,7 +74,6 @@ label_competition_schema = {
 
 
 
-# collection ---> collect_and_structure
 ask_structured_schema = {
     "name": "ask_structured_schema",
     "description": (
@@ -175,7 +174,6 @@ ask_structured_schema = {
     }
 }
 
-# llm_coding ---> structure_and_label_competition
 structure_and_label_competition_schema = {
     "name": "structure_and_label_competition_schema",
     "description": (
@@ -432,7 +430,7 @@ tools = [
                 "             [min(n_features*i, 1024) for i in (2, 1, 0.5, 0.25)] (drop any <16 units)\n"
                 "         – After each: BatchNormalization() + Dropout(≤0.4)\n"
                 "\n"
-                "***For all hidden layers (except the final output), use ReLU activation***\n"
+                "***For all hidden **Dense** layers (except the final output), use ReLU activation***\n"
                 "  - **Task subtype → head, loss, batch & metrics:**\n"
                 "    **(Note: activation applies only to the final/output layer)**\n"
                 "    * **binary classification:**\n"
@@ -454,6 +452,7 @@ tools = [
                 "        – batch_size=32–256, metrics=[tf.keras.metrics.RootMeanSquaredError(), tf.keras.metrics.MeanAbsoluteError()]\n"
                 "    * **time-series forecasting:**\n"
                 "        – use chronological split\n"
+                "        – **model:** stack LSTM layers (their internal activations are tanh + sigmoid gates), **then** any Dense head\n"
                 "        – activation=linear, loss=mean_squared_error\n"
                 "        – epochs=10–50, metrics=[tf.keras.metrics.RootMeanSquaredError()]\n"
                 ")"
@@ -466,22 +465,30 @@ tools = [
             "       history = model.fit(X_train_proc, y_train, validation_split=0.2, epochs=100, callbacks=callbacks, verbose=2)\\n"
             "   duration = time.time() - start_time  # compute after fit\\n"
             "9. **Evaluation & Logging**:\\n\"  \n"
-            "   Don't user tensorflow_addons"
+            "   Don't use tensorflow_addons, it is no longer supported use more recent ways to record metrics"
             "   Turn on the verbose and save the training and validtion accuracy and log of the last epoch in a json file (results.json). It will have the following keys: {training_accuracy, training_loss,validation_accuracy and validation_loss}\n"
             "   with open('results.json','w') as f: json.dump(results,f)\\n\"  \n"
-            "10. **Prediction & Submission**:\n"
-                "raw_preds = model.predict(X_test_proc)\n"
-                "***if competition_problem_subtype in ['multiclass', 'multiclass classification', 'multi-label classification']: final = le.inverse_transform(raw_preds.argmax(axis=1))\n"
-                "***elif competition_problem_subtype in ['binary-classification']: final = (raw_preds.flatten() > 0.5).astype(int)\n"
-                "***else: final = raw_preds.flatten()\n"
-                "if competition_problem_subtype in ['continuous-regression','quantile-regression','multi-output regression','missing-value-imputation']:\n"
-                "    final = np.expm1(np.clip(final, a_min=None, a_max=20))  # inverse transform\n"
-                "if len(target_columns) == 1:\n"
-                "    submission = pd.DataFrame({id_col: test_ids, target_columns[0]: final})\n"
-                "else:\n"
-                "    submission = pd.DataFrame(final, columns=target_columns)\n"
-                "    submission.insert(0, id_col, test_ids)\n"
-                "submission.to_csv('submission_result.csv', index=False)\n"
+            "# Infer id_col & target_columns from submission_example header\n\
+            if any(not col.replace('.','').isdigit() for col in target_columns) or len(target_columns) > 1:\n\
+                competition_problem_subtype = \"multi-label classification\"\n\
+            \n\
+            10. **Prediction & Submission**:\n\
+            raw_preds = model.predict(X_test_proc)\n\
+            if competition_problem_subtype == \"multi-label classification\": final = (raw_preds > 0.5).astype(int)\n\
+            elif competition_problem_subtype in [\"multiclass\", \"multiclass classification\"]: idxs = raw_preds.argmax(axis=1); final = le.inverse_transform(idxs)\n\
+            elif competition_problem_subtype == \"binary-classification\":\n\
+                probs = raw_preds[:,1] if raw_preds.ndim==2 and raw_preds.shape[1]==2 else raw_preds.flatten()\n\
+                final = (probs > 0.5).astype(int)\n\
+            elif competition_problem_subtype in [\"continuous-regression\",\"quantile-regression\",\"multi-output regression\",\"missing-value-imputation\"]:\n\
+                final = raw_preds\n\
+                if np.all(final >= 0): final = np.expm1(np.clip(final, a_min=None, a_max=20))\n\
+            else: final = raw_preds\n\
+            \n\
+            # ensure 2D\n\
+            if final.ndim == 1: final = final.reshape(-1,1)\n\
+            submission = pd.DataFrame(final, columns=target_columns)\n\
+            submission.insert(0, id_col, test_ids.reset_index(drop=True))\n\
+            submission.to_csv('submission_result.csv', index=False)\n"
             
         ),
         "parameters": {
@@ -513,20 +520,48 @@ tools = [
                     "description": "Full NLP explanation of the dataset, the columns that need to be predicted and the training files provided"
                 },
                 "data_profiles": {
-                    "type": "object",
-                    "additionalProperties": False, 
-                    "properties": {}  
+                    "type": "array",
+                    "description": "One entry per file after compaction",
+                    "items": {
+                        "type": "object",
+                        "required": ["file_name", "shape","targets"],
+                        "properties": {
+                            "file_name": { "type": "string" },
+
+                            "shape": {
+                                "type": "object",
+                                "required": ["rows", "cols"],
+                                "properties": {
+                                    "rows": { "type": "integer" },
+                                    "cols": { "type": "integer" }
+                                },
+                                "additionalProperties": False
+                            },
+
+                            "targets": {
+                                "type": "array",
+                                "items": { "type": "string" }
+                            }
+                        },
+                        "additionalProperties": False
+                    }
                 },
                 "files_preprocessing_instructions": {
                     "type": "string",
                     "description": "Instructions for how to preprocess the raw files."
                 },
                 "submission_example": {
-                    "type": "string", 
-                    "description": (  
-                        "Contains the target columns ***not including the id column*** that need to be predicted and the example format of columns and values that needs to be outputted to the submission_results.csv`\n\
-                        Rely on the `submission_example` for how to format the sumbission and pay attentiton for what types of values there are\n"                
-                    )
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                        "column_name": { "type": ["string", "number"] },  
+                        "value":       { "type": ["number", "string", "boolean", "null"] }
+                        },
+                        "required": ["column_name", "value"],
+                        "additionalProperties": False
+                    }
                 },
                 "files_list": {
                     "type": "array",
@@ -540,19 +575,18 @@ tools = [
                         "type": "object",
                         "additionalProperties": False,
                         "properties": {
-                            "score":                {"type":"number"},
                             "preprocessing_steps":  {
                                 "type":"array",
                                 "items":{"type":"string"}
                             },
                             "model_layers_code":    {"type":"string"}
                         },
-                        "required":["score","preprocessing_steps","model_layers_code"]
+                        "required":["preprocessing_steps","model_layers_code"]
                     }
                 },
                 "notebook_code": {
                     "type": "string",
-                    "description": "The complete runnable Python notebook code wrapped in <Code>…</Code>."
+                    "description": "***The complete runnable Python notebook code wrapped in <Code>…</Code>."
                 }
             },
             "required": [
@@ -567,573 +601,238 @@ tools = [
                 "notebook_code"
             ]
         },
-        "strict": True     # ← enforce valid JSON
+        "strict": True     
     }
-] 
+]
 
-
-
-# tools = [
-#     {
-#         "name": "generate_keras_schema",  
-#         "type": "function",
-#         "description": (
-#             "***Generate and save a runnable Python code wrapped in <Code>…</Code> in a singe `notebook_code` json field:\\n"  
-#             "The generated code must implement:\n"
-#             "1. **Reproducibility**: set seeds for Python, NumPy, scikit-learn, and TensorFlow (or PyTorch).\n"
-#             "2. **Imports**:\\n\"  \n"
-#             "   - `pandas`, `numpy`\\n\"  \n"
-#             "   - `sklearn.model_selection.train_test_split`\\n\"  \n"
-#             "   - `sklearn.impute.SimpleImputer`\\n\"  \n"
-#             "   - `sklearn.compose.ColumnTransformer`\\n\"  \n"
-#             "   - `sklearn.preprocessing.StandardScaler`,`OneHotEncoder`,`LabelEncoder`  ← **added here**\\n\"  \n"
-#             "   - `sklearn.pipeline.Pipeline`\\n\"  \n"
-#             "   - `tensorflow` (or `torch`)\\n\"  \n"
-#             "   - `tensorflow.keras.callbacks.EarlyStopping,ModelCheckpoint`\\n\"  \n"
-#             "   - `json`, `time`\\n\"  \n"
-#             "   When using OneHotEncoding, use sparse_output=False instead of sparse\n"
-#            "3. Data Loading, Split & Target Encoding:\n"
-#             "Read each file in files_list into train_dfs\n"
-#             "If any filename endswith 'test.csv', load it into df_test, else df_test=None\n"
-#             "Infer id_col & target_columns from submission_example header\n"
-#             "df = pd.concat(train_dfs, ignore_index=True)\n"
-#             "# Target encoding immediately after df is final:\n"
-#             "col = target_columns[0]\n"
-#             "if competition_problem_subtype=='binary-classification':\n"
-#             "    from sklearn.preprocessing import LabelEncoder\n"
-#             "    le=LabelEncoder().fit(df[col].astype(str))\n"
-#             "    y_enc=le.transform(df[col].astype(str)).astype(int)\n"
-#             "    classes_=le.classes_\n"
-#             "elif competition_problem_subtype in ['multiclass-classification','multiclass classification','ordinal-regression']:\n"
-#             "    from sklearn.preprocessing import LabelEncoder\n"
-#             "    le=LabelEncoder().fit(df[col].astype(str))\n"
-#             "    y_enc=le.transform(df[col].astype(str))\n"
-#             "    classes_=le.classes_\n"
-#             "elif competition_problem_subtype=='multi-label classification':\n"
-#             "    from sklearn.preprocessing import MultiLabelBinarizer\n"
-#             "    mlb=MultiLabelBinarizer()\n"
-#             "    y_enc=mlb.fit_transform(df[target_columns])\n"
-#             "    classes_=mlb.classes_\n"
-#             "elif competition_problem_subtype in ['continuous-regression','quantile-regression','multi-output regression','missing-value-imputation']:\n"
-#             "    y_enc=df[target_columns].astype(float).values\n"
-#             "elif competition_problem_subtype in ['time-series-forecasting','multivariate-time-series-forecasting']:\n"
-#             "    y_enc=df[target_columns].values\n"
-#             "else:\n"
-#             "    y_enc=df[target_columns].values\n"
-#             "X=df.drop(columns=target_columns+[id_col],errors='ignore')\n"
-#             "# now either use provided df_test or split off 20% for test:\n"
-#             "if df_test is None:\n"
-#             "    X_train,X_val,y_train,y_val=train_test_split(\n"
-#             "        X,y_enc,\n"
-#             "        test_size=0.2,\n"
-#             "        stratify=y_enc if competition_problem_subtype in ['binary-classification','multiclass-classification','multiclass classification'] else None,\n"
-#             "        random_state=42)\n"
-#             "    train_ids=X_train[id_col]\n"
-#             "    test_ids =X_val[id_col]\n"
-#             "else:\n"
-#             "    X_train=X\n"
-#             "    y_train=y_enc\n"
-#             "    train_ids=df[id_col]\n"
-#             "    test_ids =df_test[id_col]\n"
-#             "    X_val   =df_test.drop(columns=target_columns+[id_col],errors='ignore')\n"
-#             "\n"
-#             "4. Feature Engineering:\n"
-#                 "Automatically drop columns with all missing values\n"
-#                 "Identify categorical columns and remove those with extremely high cardinality (eg >50 unique)\n"
-#                 "Optionally apply any additional simple transformations you deem useful\n"
-#             "5. **Preprocessing Pipeline**:\n"
-#                 "   - Auto-detect numeric vs. categorical via `df.select_dtypes`.\n"
-#                 "   - Build a `ColumnTransformer` with median‐imputed & scaled numerics, and most‐frequent‐imputed & OHE categoricals (cap at 50 cats).\n"
-#                 "   - Fit on train → transform train/val/test.\n"
-#             "6. **Fix numbering**: ensure your sections run 0→11 with no gaps or duplicates.\n"
-#             "7. **Model Architecture:**\n"
-#                 "- Build at least two hidden layers with BatchNormalization and Dropout after each\n"
-#                 "- Set output units = number of target_columns for multilabel/multiclass, else 1\n"
-#                 "- Choose depth & width by data shape: shallow/narrow for small datasets, deeper/wider for large datasets, scale units ≈ min(features×2,1024)\n"
-#                 "- Leverage provided `examples` but adjust architecture based on dataset size, feature count, and target count\n"
-#                 "- **Architectural Guidelines:**\n"
-#                 "   - **Choose by data size:**\n"
-#                 "     • If `n_samples < 10000` or `n_features < 100`:\n"
-#                 "         – Build **two** Dense layers of sizes:\n"
-#                 "             [min(n_features*2, 128), min(n_features, 64)]\n"
-#                 "         – **No** BatchNormalization; Dropout ≤ 0.3\n"
-#                 "     • Else:\n"
-#                 "         – Build **2–4** Dense layers of sizes:\n"
-#                 "             [min(n_features*i, 1024) for i in (2, 1, 0.5, 0.25)] (drop any <16 units)\n"
-#                 "         – After each: BatchNormalization() + Dropout(≤0.4)\n"
-#                 "\n"
-#                 "***For all hidden layers (except the final output), use ReLU activation***\n"
-#                 "  - **Task subtype → head, loss, batch & metrics:**\n"
-#                 "    **(Note: activation applies only to the final/output layer)**\n"
-#                 "    * **binary classification:**\n"
-#                 "        – activation=sigmoid, loss=binary_crossentropy\n"
-#                 "        – batch_size=64–256, metrics=['accuracy', tf.keras.metrics.AUC(), tfa.metrics.MatthewsCorrelationCoefficient()]\n"
-#                 "    * **multiclass classification (MAP@N):**\n"
-#                 "        – activation=softmax, loss=sparse_categorical_crossentropy\n"
-#                 "        – batch_size=32–128, metrics=['accuracy', tf.keras.metrics.TopKCategoricalAccuracy(k=N, name=f'top_{N}_accuracy')]\n"
-#                 "        – at inference: take the top-N softmax probabilities for submission\n"
-#                 "    * **multilabel classification:**\n"
-#                 "        – activation=sigmoid, loss=binary_crossentropy\n"
-#                 "        – batch_size=64–256, metrics=[tf.keras.metrics.Precision(), tf.keras.metrics.Recall(), tfa.metrics.F1Score(num_classes=n_classes)]\n"
-#                 "    * **regression:**\n"
-#                 "        – activation=linear, loss=mean_squared_error\n"
-#                 "        – batch_size=32–256, metrics=[tf.keras.metrics.RootMeanSquaredError(), tf.keras.metrics.MeanAbsoluteError()]\n"
-#                 "    * **time-series forecasting:**\n"
-#                 "        – use chronological split\n"
-#                 "        – activation=linear, loss=mean_squared_error\n"
-#                 "        – epochs=10–50, metrics=[tf.keras.metrics.RootMeanSquaredError()]\n"
-#                 ")"
-#             "8. **Compile the model with the Adam optimizer and the chosen loss and metrics\n"
-#             "9. **Callbacks & Training**:\\n\"  \n"
-#             "   start_time = time.time()  ← **capture before fit**\\n\"  \n"
-#             "   history = model.fit(X_train_proc, y_train, validation_data=(X_val_proc, y_val), epochs=100, callbacks=callbacks)\\n\"  \n"
-#             "   duration = time.time() - start_time  ← **compute after fit**\\n\"  \n"
-#             "10. **Evaluation & Logging**:\\n\"  \n"
-#             "   Don't user tensorflow_addons"
-#             "   Turn on the verbose and save the training and validtion accuracy and log of the last epoch in a json file (results.json). It will have the following keys: {training_accuracy, training_loss,validation_accuracy and validation_loss}\n"
-#             "   with open('results.json','w') as f: json.dump(results,f)\\n\"  \n"
-#             "11. **Prediction & Submission**:\n"
-#                 "raw_preds = model.predict(X_test_proc)\n"
-#                 "***if competition_problem_subtype == ['multiclass','multiclass classification','multi-label classification` ]: final = le.inverse_transform(raw_preds.argmax(axis=1))\n"
-#                 "***elif competition_problem_subtype == 'binary-classification': final = (raw_preds.flatten() > 0.5).astype(int)\n"
-#                 "***else: final = raw_preds.flatten()\n"
-#                 "if len(target_columns) == 1:\n"
-#                 "    submission = pd.DataFrame({id_col: test_ids, target_columns[0]: final})\n"
-#                 "else:\n"
-#                 "    submission = pd.DataFrame(final, columns=target_columns)\n"
-#                 "    submission.insert(0, id_col, test_ids)\n"
-#                 "submission.to_csv('submission_result.csv', index=False)\n"
-            
-#         ),
-#         "parameters": {
-#             "type": "object",
-#             "additionalProperties": False,
-#             "properties": {
-#                 "competition_problem_description": {
-#                     "type": "string",
-#                     "description": "Dense competition description giving the core goal."
-#                 },
-#                 "competition_problem_subtype": {
-#                     "type": "string",
-#                     "description": "One of:\n"
-#                         "  - binary-classification\n"
-#                         "  - multiclass-classification\n"
-#                         "  - multiclass classification\n"
-#                         "  - multi-label classification\n"
-#                         "  - continuous-regression\n"
-#                         "  - quantile-regression\n"
-#                         "  - multi-output regression\n"
-#                         "  - time-series-forecasting\n"
-#                         "  - multivariate-time-series-forecasting\n"
-#                         "  - ordinal-regression\n"
-#                         "  - missing-value-imputation\n"
-#                         "Rely on this to choose splits, loss, activation, etc."
-#                 },
-#                 "dataset_metadata": {
-#                     "type": "string",
-#                     "description": "Full NLP explanation of the dataset, the columns that need to be predicted and the training files provided"
-#                 },
-#                 "data_profiles": {
-#                     "type": "object",
-#                     "additionalProperties": False, 
-#                     "properties": {}  
-#                 },
-#                 "files_preprocessing_instructions": {
-#                     "type": "string",
-#                     "description": "Instructions for how to preprocess the raw files."
-#                 },
-#                 "submission_example": {
-#                     "type": "string", 
-#                     "description": (  
-#                         "Contains the target columns ***not including the id column*** that need to be predicted and the example format of columns and values that needs to be outputted to the submission_results.csv`\n\
-#                         Rely on the `submission_example` for how to format the sumbission and pay attentiton for what types of values there are\n"                
-#                     )
-#                 },
-#                 "files_list": {
-#                     "type": "array",
-#                     "items": {"type": "string"},
-#                     "description": " list of all files included in the competition, decide whether there are testing files and whether you need to split the training dataset"
-#                 },
-#                 "examples": {
-#                     "type": "array",
-#                     "description": "Retrieved preprocessing and code snippets from solutions of top similar competitions, rely on them ",
-#                     "items": {
-#                         "type": "object",
-#                         "additionalProperties": False,
-#                         "properties": {
-#                             "score":                {"type":"number"},
-#                             "preprocessing_steps":  {
-#                                 "type":"array",
-#                                 "items":{"type":"string"}
-#                             },
-#                             "model_layers_code":    {"type":"string"}
-#                         },
-#                         "required":["score","preprocessing_steps","model_layers_code"]
-#                     }
-#                 },
-#                 "notebook_code": {
-#                     "type": "string",
-#                     "description": "The complete runnable Python notebook code wrapped in <Code>…</Code>."
-#                 }
-#             },
-#             "required": [
-#                 "competition_problem_description",
-#                 "competition_problem_subtype",
-#                 "dataset_metadata",
-#                 "data_profiles",
-#                 "files_preprocessing_instructions",
-#                 "submission_example",
-#                 "files_list",
-#                 "examples",
-#                 "notebook_code"
-#             ]
-#         },
-#         "strict": True     # ← enforce valid JSON
-#     }
-# ] 
-
-
-# # llm_coding ----> solve_competition_keras
-# generate_keras_schema = {
-#         "name": "generate_keras_schema",   
-#         "description": (
-#             "***Generate and save a runnable Python code wrapped in <Code>…</Code> in a singe `notebook_code` json field:\\n"  
-#             "The generated code must implement:\n"
-#             "1. **Reproducibility**: set seeds for Python, NumPy, scikit-learn, and TensorFlow (or PyTorch).\n"
-#             "2. **Imports**:\\n\"  \n"
-#             "   - `pandas`, `numpy`\\n\"  \n"
-#             "   - `sklearn.model_selection.train_test_split`\\n\"  \n"
-#             "   - `sklearn.impute.SimpleImputer`\\n\"  \n"
-#             "   - `sklearn.compose.ColumnTransformer`\\n\"  \n"
-#             "   - `sklearn.preprocessing.StandardScaler`,`OneHotEncoder`,`LabelEncoder`  ← **added here**\\n\"  \n"
-#             "   - `sklearn.pipeline.Pipeline`\\n\"  \n"
-#             "   - `tensorflow` (or `torch`)\\n\"  \n"
-#             "   - `tensorflow.keras.callbacks.EarlyStopping,ModelCheckpoint`\\n\"  \n"
-#             "   - `json`, `time`\\n\"  \n"
-#             "3. Data Loading, Split & Target Encoding:\n"
-#                 "Read each file in files_list into train_dfs\n"
-#                 "If any filename endswith 'test.csv', load it into df_test, else df_test=None\n"
-#                 "Infer id_col & target_columns from submission_example header\n"
-#                 "df = pd.concat(train_dfs, ignore_index=True)\n"
-#                 "# Now df holds only training data\n"
-#                 "# Target encoding immediately after df is final:\n"
-#                 "col = target_columns[0]\n"
-#                 "if competition_problem_subtype in ['time-series-forecasting','multivariate-time-series-forecasting']:\n"
-#                 "    # chronological split\n"
-#                 "    cutoff = int(len(df) * 0.8)\n"
-#                 "    X_train,   y_train = X[:cutoff],   y_enc[:cutoff]\n"
-#                 "    X_val,     y_val   = X[cutoff:],   y_enc[cutoff:]\n"
-#                 "else:\n"
-#                 "    # random split (stratify only for binary/multiclass)\n"
-#                 "    kwargs = dict(test_size=0.2, random_state=42)\n"
-#                 "    if competition_problem_subtype in ['binary-classification','multiclass']:\n"
-#                 "        kwargs['stratify'] = y_enc\n"
-#                 "    X_train, X_val, y_train, y_val = train_test_split(X, y_enc, **kwargs)\n"
-#                 "# Use provided df_test or split df for test set:\n"
-#                 "if df_test is None:\n"
-#                 "    X = df.drop(columns=target_columns + [id_col], errors='ignore')\n"
-#                 "    X_train, X_val, y_train, y_val = train_test_split(\n"
-#                 "        X, y_enc,\n"
-#                 "        test_size=0.2,\n"
-#                 "        stratify=y_enc if competition_problem_subtype in ['binary-classification','multiclass'] else None,\n"
-#                 "        random_state=42)\n"
-#                 "    train_ids = X_train[id_col]\n"
-#                 "    test_ids  = X_val[id_col]\n"
-#                 "else:\n"
-#                 "    X_train = df.drop(columns=target_columns + [id_col], errors='ignore')\n"
-#                 "    y_train = y_enc\n"
-#                 "    train_ids = df[id_col]\n"
-#                 "    test_ids  = df_test[id_col]\n"
-#                 "    X_test   = df_test.drop(columns=target_columns + [id_col], errors='ignore')\n"
-#             "4. Feature Engineering:\n"
-#                 "Automatically drop columns with all missing values\n"
-#                 "Identify categorical columns and remove those with extremely high cardinality (eg >50 unique)\n"
-#                 "Optionally apply any additional simple transformations you deem useful\n"
-#             "5. **Preprocessing Pipeline**:\n"
-#                 "   - Auto-detect numeric vs. categorical via `df.select_dtypes`.\n"
-#                 "   - Build a `ColumnTransformer` with median‐imputed & scaled numerics, and most‐frequent‐imputed & OHE categoricals (cap at 50 cats).\n"
-#                 "   - Fit on train → transform train/val/test.\n"
-#             "6. **Fix numbering**: ensure your sections run 0→11 with no gaps or duplicates.\n"
-#             "7. **Model Activation Functions & Sizing:**\n"
-#                 "- Build at least two hidden layers with BatchNormalization and Dropout after each\n"
-#                 "- Set output units = number of target_columns for multilabel/multiclass, else 1\n"
-#                 "For the last model layer pick one of these activation functions based on the `competition_problem_subtype`\n"
-#                 "- ***Use softmax activation for ['multiclass','multiclass classification','multi-label classification` ] classification\n"
-#                 "- ***Use sigmoid activation for binary classification or multilabel\n"
-#                 "- ***Use linear activation for regression or other continuous targets\n"
-#                 "- ****Choose depth and width by data shape: shallow/narrow for small datasets, deeper/wider for large datasets, scale units ≈ min(features×2, 1024)\n"
-#                 "- Leverage provided `examples` preprocessing steps and model code but adjust architecture based on dataset size, feature count, and target count\n"
-#             "8. Loss Functions and Compilation:\n"
-#                 "- For regression: set loss to 'mse' and metrics to ['RootMeanSquaredError']\n"
-#                 "- For binary classification: set loss to 'binary_crossentropy' and metrics to ['accuracy']\n"
-#                 "- For multiclass classification: set loss to 'sparse_categorical_crossentropy' and metrics to ['accuracy']\n"
-#                 "- For multilabel classification: set loss to 'binary_crossentropy' and metrics to ['accuracy']\n"
-#                 "- Compile the model with the Adam optimizer and the chosen loss and metrics\n"
-#             "9. **Callbacks & Training**:\\n\"  \n"
-#             "   start_time = time.time()  ← **capture before fit**\\n\"  \n"
-#             "   history = model.fit(X_train_proc, y_train, validation_data=(X_val_proc, y_val), epochs=100, callbacks=callbacks)\\n\"  \n"
-#             "   duration = time.time() - start_time  ← **compute after fit**\\n\"  \n"
-#             "10. **Evaluation & Logging**:\\n\"  \n"
-#             "   results = {\\n\"  \n"
-#             "       'training_accuracy': train_accuracy,\\n\"  \n"
-#             "       'validation_accuracy': val_accuracy,\\n\"  \n"
-#             "       'validation_loss': val_loss,\\n\"  \n"
-#             "       'training_loss': train_loss,\\n\"  \n"
-#             "       'training_duration': duration\\n\"  \n"
-#             "   }\\n\"  \n"
-#             "   with open('results.json','w') as f: json.dump(results,f)\\n\"  \n"
-#             "11. **Prediction & Submission**:\n"
-#                 "raw_preds = model.predict(X_test_proc)\n"
-#                 "***if competition_problem_subtype == ['multiclass','multiclass classification','multi-label classification` ]: final = le.inverse_transform(raw_preds.argmax(axis=1))\n"
-#                 "***elif competition_problem_subtype == 'binary-classification': final = (raw_preds.flatten() > 0.5).astype(int)\n"
-#                 "***else: final = raw_preds.flatten()\n"
-#                 "if len(target_columns) == 1:\n"
-#                 "    submission = pd.DataFrame({id_col: test_ids, target_columns[0]: final})\n"
-#                 "else:\n"
-#                 "    submission = pd.DataFrame(final, columns=target_columns)\n"
-#                 "    submission.insert(0, id_col, test_ids)\n"
-#                 "submission.to_csv('submission_result.csv', index=False)\n"
-            
-#         ),
-#         "parameters": {
-#             "type": "object",
-#             "additionalProperties": False,
-#             "properties": {
-#                 "competition_problem_description": {
-#                     "type": "string",
-#                     "description": "Dense competition description giving the core goal."
-#                 },
-#                 "competition_problem_subtype": {
-#                     "type": "string",
-#                     "description": "One of:\n"
-#                         "  - binary-classification\n"
-#                         "  - multiclass-classification\n"
-#                         "  - multiclass classification\n"
-#                         "  - multi-label classification\n"
-#                         "  - continuous-regression\n"
-#                         "  - quantile-regression\n"
-#                         "  - multi-output regression\n"
-#                         "  - time-series-forecasting\n"
-#                         "  - multivariate-time-series-forecasting\n"
-#                         "  - ordinal-regression\n"
-#                         "  - missing-value-imputation\n"
-#                         "Rely on this to choose splits, loss, activation, etc."
-#                 },
-#                 "dataset_metadata": {
-#                     "type": "string",
-#                     "description": "Full NLP explanation of the dataset, the columns that need to be predicted and the training files provided"
-#                 },
-#                 "data_profiles": {
-#                     "type": "object",
-#                     "description": "A mapping filename → dataset schema & target summary of each file provided in the competition "
-#                 },
-#                 "files_preprocessing_instructions": {
-#                     "type": "string",
-#                     "description": "Instructions for how to preprocess the raw files."
-#                 },
-#                 "submission_example": {
-#                     "type": "string", 
-#                     "description": (  
-#                         "Contains the target columns ***not including the id column*** that need to be predicted and the example format of columns and values that needs to be outputted to the submission_results.csv`\n\
-#                         Rely on the `submission_example` for how to format the sumbission and pay attentiton for what types of values there are\n"                
-#                     )
-#                 },
-#                 "files_list": {
-#                     "type": "array",
-#                     "items": {"type": "string"},
-#                     "description": " list of all files included in the competition, decide whether there are testing files and whether you need to split the training dataset"
-#                 },
-#                 "examples": {
-#                     "type": "array",
-#                     "description": "Retrieved preprocessing and code snippets from solutions of top similar competitions, rely on them ",
-#                     "items": {
-#                         "type": "object",
-#                         "properties": {
-#                             "kernel_ref":           {"type":"string"},
-#                             "score":                {"type":"number"},
-#                             "preprocessing_steps":  {
-#                                 "type":"array",
-#                                 "items":{"type":"string"}
-#                             },
-#                             "model_layers_code":    {"type":"string"}
-#                         },
-#                         "required":["kernel_ref","score","preprocessing_steps","model_layers_code"]
-#                     }
-#                 },
-
-#                 "notebook_code": {
-#                     "type": "string",
-#                     "description": "***The complete runnable Python code wrapped in <Code>…</Code>, saved in the `notebook_code` json field.***"
-#                 }
-#             },
-#             "required": [
-#                 "notebook_code"
-#             ]
-#         },
-#         "strict": True
-#     }
-
-
-
-generate_tuner_schema = {
-    "name": "generate_tuner_schema",
-    "description": (
-        "***Generate and save a runnable Python code wrapped in <Code>…</Code> in the ***`tuner_code` json field"
-            "  - Every backslash (`\\`) in your code must be escaped as `\\\\`, every double‐quote (`\"`) inside your code must be escaped as `\\\"`, and every newline as `\\n`\n"
-            "  - Ensure that the code you emit is **syntactically valid Python**:\n"  
-            "  - Every `import` must be on its own line. \n "
-            "  - Use consistent 4-space indentation for all blocks.\n"  
-            "  - All parentheses `()`, brackets `[]` and braces `{}` must be balanced and preserved.\n"  
-        "Given:\n"
-            "  - `competition_slug`: the Kaggle competition slug,\n"
-            "  - `competition_problem_description`: Dense competition problem description,\n"
-            "  - `competition_problem_type`: Classification|Regression,\n"
-            "  - `competition_problem_description`: Specifies the subtype of the problem,\n"
-            "  - `dataset_metadata`: Full NLP explanation of the dataset, the columns that need to be predicted and the training files provided,\n"
-            "  - `data_profiles`: compacted schema & target summaries for each file,\n"
-            "  - Emit ONLY a single JSON object with exactly one field: "
-            "  - ***`tuner_code`: a string containing the **full** runnable Python notebook code wrapped in `<Code>…</Code>`\n"
-            "  - This must include **all** original data loading, preprocessing, model definition, callbacks, training, **and** the Keras-Tuner integration (imports, HyperModel wrapper, tuner setup, search, and best_model rebuild), as well as final evaluation and `submission.to_csv`.\n"        "    (including imports, HyperModel subclass, tuner setup, search, and final retrain)\n"
-            "  - Keep the structure the same as the original Keras code, including the training timing, saving the result into a submission file \n"
-        "   0.1. Use `chosen_profile[\"params\"]` to drive every `hp.*` call below.\n" 
-        "***IMPORTANT CODING RULES:***\n"
-            "  - First, select `hyperparameter_bank` by comparing each bank-entry’s `tags` to `competition_problem_type`, `competition_problem_subtype`, and whether the data is tabular/text.\n"
-            "  - Use the model layers, compile, and fit, provided by the `hyperparameter_bank` if they fit better than the original Keras code layers \n" 
-            "  - You must only use hyperparameters defined in `hyperparameter_bank.params`.  For each key in `hyperparameter_bank.params`, generate exactly one `hp.*(...)` call _inside_ `build(self, hp)`.\n"
-            "  - Map each param name to its correct `hp.Int` / `hp.Float` / `hp.Choice` signature, preserving min/max/step/log/values exactly.\n"
-            "  - NEVER call `hp.*` or `kt.HyperParameters()` anywhere else in the code.\n"
-            "  - In `tuner.search(...)`, pass **literal** `batch_size` and `epochs` values drawn from `chosen_profile.params.batch_size` and `.epochs`, but **do not** call `hp.*` there.\n"
-            "  - Do not introduce any new hyperparameters or omit any from `chosen_profile.params`.\n"
-            "  - All variable names (e.g. `X_train_proc`, `early_stopping`, etc.) must match the original Keras code exactly.\n"
-            "  - The final generated code must be valid Python and runnable end‐to‐end with no missing variables or undefined names.\n"
-            "   - DO NOT rename variables—match the exact names used in the provided Keras code.\n"
-            "  - This guarantees that `hp` is only referenced inside `build(self, hp)` and never in the `search` call.\n"
-            "\n"
-        "# TUNER INTEGRATION (replace original build & fit):\n"
-        "1. Add `import keras_tuner as kt` alongside existing imports.\n"
-        "2. Wrap your existing `build_model(...)` in:\n"
-        "   ```python\n"
-        "   class MyHyperModel(kt.HyperModel):\n"
-        "       def build(self, hp):\n"
-        "           model = build_model(\n"
-        "               ... # hyperparameters\n"
-        "           )\n"
-        "           # Compile the model here using the same optimizer/loss/metrics as the original Keras code\n"
-        "           model.compile(optimizer=..., loss=..., metrics=[...])\n"
-        "           return model\n"
-        "   ```\n"
-        "3. Instead of any `model.fit(...)`, insert:\n"
-        "   ```python\n"
-        "    **Use placeholders** for:\n"
-        "     - `max_trials` ← `chosen_profile.params.max_trials` if present, otherwise a sensible default (e.g. 20).\n"
-        "     - `batch_size` ← the midpoint (or any deterministic pick) of `chosen_profile.params.batch_size.values`.\n"
-        "     - `epochs` ← the midpoint (or pick) of `chosen_profile.params.epochs.min` and `.max`.\n"
-        "  4. In your `tuner.search`, use these placeholders literally:\n"
-        "     ```python\n"
-        "     max_trials = <PLACEHOLDER_max_trials>\n"
-        "     batch_size = <PLACEHOLDER_batch_size>\n"
-        "     epochs     = <PLACEHOLDER_epochs>\n\n"
-        "     tuner = kt.RandomSearch(\n"
-        "         MyHyperModel(),\n"
-        "         objective='val_loss',\n"
-        "         max_trials=max_trials,\n"
-        "         executions_per_trial=1,\n"
-        "         seed=42\n"
-        "     )\n\n"
-        "     tuner.search(\n"
-        "         X_train_proc, Y_train,\n"
-        "         validation_data=(X_val_proc, Y_val),\n"
-        "         batch_size=batch_size,\n"
-        "         epochs=epochs,\n"
-        "         callbacks=[early_stopping, checkpoint]\n"
-        "     )\n"
-        "     ```\n"
-        "  5. Replace `<PLACEHOLDER_…>` with values computed from your `chosen_profile.params`.\n"
-        "\n"
-        "best_hp = tuner.get_best_hyperparameters(1)[0]\n"
-        "best_model = tuner.hypermodel.build(best_hp)\n"
-        "   ```\n"
-        ""
-        "4. Hand back `best_model` into your existing evaluation & submission code.\n"
-    ),
-    "parameters": {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "competition_slug":                 {"type": "string"},
-            "competition_problem_description":  {"type": "string"},
-            "competition_problem_type":         {"type": "string"},
-            "competition_problem_subtype":      {"type": "string"},
-            "dataset_metadata":                 
-            {
-                "type": "string"
-                "description"
-            },
-            "data_profiles":                    
-            {
-                "type": "object",
-                "description": "A mapping filename → dataset schema & target summary of each file provided in the competition "
-            },
-            "existing_solution_code":           
-            {
-                "type": "string",
-                "description": "Contains an existing Keras solution that should be used to build the Keras Tuner model"
-            },
-            "hyperparameter_bank": {
-                "type": "object",
-                "description": "A map from profile name → hyperparameter profile.  Each profile has `tags`, `description`, `params`, `advice`, and `source`, containing a predefined profile for this subtype of model",
-                "additionalProperties": {
+tuner_tools = [
+    #Tuner
+    {
+        "name": "generate_tuner_schema",
+        "type": "function",
+        "description": (
+            "***Return ONE JSON field `tuner_code` containing runnable Python wrapped in <Code>…</Code>.***\n\n"  
+            "1. Choose profile → best tag overlap in `hyperparameter_bank` → `chosen`.\n\n"  
+            "• **Preserve** the definitions and usages of:\n"
+            "  ```python\n"
+            "  early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)\n"
+            "  checkpoint     = ModelCheckpoint('best_model.h5', monitor='val_loss', save_best_only=True)\n"
+            "  ```\n"            
+            "  and plug these same variables into both `tuner.search(...)` and the final `model.fit(...)`.\n\n"
+            "# preserve input dim\n"  
+            "n_features = X_train_proc.shape[1]\n\n"  
+            "2. HyperModel\n```python\n"  
+            "import keras_tuner as kt\n"  
+            "from tensorflow.keras.layers import Input, Dense, Dropout\n"  
+            "from tensorflow.keras.models import Model\n\n" 
+            "class MyHyperModel(kt.HyperModel):\n"  
+            "    def build(self, hp):\n" 
+            "        layers = hp.Int('layers', **chosen['params']['layers'])\n" 
+            "        units  = hp.Int('units', **chosen['params']['units'])\n"
+            "        act    = hp.Choice('activation', chosen['params']['activation']['values'])\n"  
+            "        drop   = hp.Float('dropout', **chosen['params']['dropout'])\n"  
+            "        opt    = hp.Choice('optimizer', chosen['params']['optimizer']['values'])\n"  
+            "        lr     = hp.Float('learning_rate', **chosen['params']['learning_rate'], sampling='log')\n\n"  
+            "        inputs = Input(shape=(n_features,))\n"  
+            "        x = inputs\n"  
+            "        if 'lstm_units' in chosen['params']:\n"
+            "           dense_units = hp.Int   ('dense_units',   **chosen['params']['dense_units'])\n"
+            "           # time-series LSTM branch\n"
+            "           for i in range(layers):\n"
+            "               return_seq = (i < layers - 1)\n"
+            "               x = LSTM(lstm_units, return_sequences=False)(x)\n"
+            "           x = Dense(dense_units, activation='relu')(x)\n"
+            "           x = Dropout(drop)(x)\n"
+            "        else:\n"
+            "           for _ in range(layers):\n"  
+            "               x = Dense(units, activation=act)(x)\n"  
+            "               x = Dropout(drop)(x)\n"  
+            "        x = output_layer_original(x)  # keep orig head\n"  
+            "        model = Model(inputs, x)\n"  
+            "        model.compile(optimizer=opt, loss=original_loss, metrics=original_metrics)\n"  
+            "        # stash for use in tuner.search\n"
+            "        return model\n"  
+            "```  \n"  
+            "*No extra `hp.*` calls.*\n\n"  
+            "3. Replace `model.fit` with Bayesian only, **using the provided batch_size and epochs from the **hyperparameter_bank:\n"
+            "tuner = kt.BayesianOptimization(\n"  
+            "    MyHyperModel(),\n"  
+            "    objective='val_loss',\n"  
+            "    max_trials=chosen['params'].get('max_trials',10),\n"  
+            "    executions_per_trial=1,\n"  
+            "    seed=42,\n"  
+            "    overwrite=True,\n"  
+            "    project_name='bayesian_tuner'\n"  
+            ")\n\n"  
+            "if y_val is not None:\n"  
+            "    tuner.search(\n"  
+            "        X_train_proc, y_train,\n"  
+            "        validation_data=(X_val_proc, y_val),\n"  
+            "        batch_size=bs, epochs=ep,\n"  
+            "        callbacks=[early_stopping, checkpoint]\n"  
+            "    )\n"  
+            "else:\n"  
+            "    tuner.search(\n"  
+            "        X_train_proc, y_train,\n"  
+            "        validation_split=0.2,\n"  
+            "        batch_size=bs, epochs=ep,\n"  
+            "        callbacks=[early_stopping, checkpoint]\n"  
+            "    )\n\n"  
+            "model = tuner.hypermodel.build(\n"  
+            "    tuner.get_best_hyperparameters(1)[0]\n"  
+            ")\n"  
+            "```"  
+            "4. Retrain `model` with the original callbacks and data, guarding against `None`:\n"
+            "```python\n"
+            "if y_val is not None:\n"
+            "    history = model.fit(\n"
+            "        X_train_proc, y_train,\n"
+            "        validation_data=(X_val_proc, y_val),\n"
+            "        epochs=100, batch_size=bs,\n"
+            "        callbacks=[early_stopping, checkpoint],\n"
+            "        verbose=2\n"
+            "    )\n"
+            "else:\n"
+            "    history = model.fit(\n"
+            "        X_train_proc, y_train,\n"
+            "        validation_split=0.2,\n"
+            "        epochs=100, batch_size=bs,\n"
+            "        callbacks=[early_stopping, checkpoint],\n"
+            "        verbose=2\n"
+            "    )\n"
+            "```\n"
+        ),
+       "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "competition_problem_description": {
+                    "type": "string",
+                    "description": "Full text description of the task."
+                },
+                "competition_problem_subtype": {
+                    "type": "string",
+                    "description": "e.g. 'multiclass-classification' or 'continuous-regression'."
+                },
+                "model_block": {
+                    "type": "string",
+                    "description": "The code from the Keras version of `model =` through just before `model.fit`, plus any batch_size/epochs definitions."
+                },
+                "hyperparameter_bank": {
                     "type": "object",
-                    "required": ["tags","description","params"],
+                    "description": "One selected profile from HYPERPARAMETER_BANK for this task.",
+                    "additionalProperties": False,
                     "properties": {
-                    "tags": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "List of tags describing this profile (e.g. classification, tabular, low_features)."
+                        "params": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                            "layers":       { "type": "integer", "minimum": 1, "maximum": 8, "multipleOf": 1 },
+                            "units":        { "type": "integer", "minimum": 64, "maximum": 1024, "multipleOf": 64 },
+                            "activation":   { "type": "string", "enum": ["relu", "tanh"] },
+                            "dropout":      { "type": "number", "minimum": 0.0, "maximum": 0.5 },
+                            "optimizer":    { "type": "string", "enum": ["adam"] },
+                            "learning_rate":{ "type": "number", "minimum": 1e-5, "maximum": 1e-2 },
+                            "batch_size":   { "type": "integer", "enum": [32,64,128,256,512,1024] },
+                            "epochs":       { "type": "integer", "minimum": 10, "maximum": 200, "multipleOf": 10 },
+                            "dense_units":  { "type": "integer", "minimum": 16, "maximum": 512, "multipleOf": 16 }
+                            }
+                        },
                     },
-                    "description": { "type": "string" },
-                    "params": {
-                        "type": "object",
-                        "description": "Each key is a hyperparameter name; the value describes its type and bounds.",
-                        "additionalProperties": {
-                        "type": "object",
-                        "required": ["type"],
-                        "properties": {
-                            "type": { "type": "string", "enum": ["int","float","choice","boolean"] },
-                            "min":    { "type": "number" },
-                            "max":    { "type": "number" },
-                            "step":   { "type": "number" },
-                            "values": { "type": "array", "items": {} },
-                            "sampling": { "type": "string", "enum": ["linear","log"] }
-                        }
-                        }
-                    },
-                    "advice": {
-                        "type": "array",
-                        "items": { "type": "string" }
-                    },
-                    "source": { "type": "string" }
-                    }
+                    "required": ["dropout","optimizer","learning_rate","batch_size","epochs", "activation","layers","units"]
+                },
+                "tuner_choice": {
+                    "type": "string",
+                    "enum": ["gridsearch","bayesian","hyperband"],
+                    "description": "Which Keras Tuner class to use."
+                },
+                "tuner_code": {
+                    "type": "string",
+                    "description": "***The complete runnable Python notebook code wrapped in <Code>…</Code> saved into the `tuner_code` JSON field."
                 }
             },
-
-            "tuner_code": {
-                "type": "string",
-                "description": (
-                  "***The complete runnable Python code for the competition notebook, including data loading, preprocessing pipeline, original model definition, "
-                  "callbacks, Keras-Tuner integration (imports, HyperModel subclass, tuner setup & search), final best-model training/evaluation, and submission code, "
-                  "all wrapped in `<Code>…</Code>`, saved as an output.***"
-                )
-            }
-        },
-        "required": [
-            "tuner_code"
-        ]
+            "required": [
+                "competition_problem_description",
+                "competition_problem_subtype",
+                "model_block",
+                "hyperparameter_bank",
+                "tuner_choice",
+                "tuner_code"
+            ]
+        }
     }
-}
+    
+]
+
+extract_tools = [
+  {
+    "name": "extract_model_block",
+    "type": "function",
+    "description": (
+        "Given the full notebook in `original_code`, return JSON with exactly two keys:\n"
+        "- `model_block`: every line from the first `model =` up to the line **before** the `model.fit(...)` call;\n"
+        "- `fit_call`: the **entire** `model.fit(...)` invocation (including all its arguments) as one string.\n"
+         "Do not change anything—just extract those snippets."
+    ),
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "original_code": { "type": "string" },
+        "model_block":   { "type": "string" }
+      },
+      "required": ["original_code", "model_block"],
+      "additionalProperties": False
+    }
+  }
+]
 
 
 
+
+
+
+
+
+
+
+"""               "hyperparameter_bank": {
+                    "type": "object",
+                    "description": "A map from profile name → hyperparameter profile.  Each profile has `tags`, `description`, `params`, `advice`, and `source`, containing a predefined profile for this subtype of model",
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["tags","description","params"],
+                        "properties": {
+                        "tags": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "List of tags describing this profile (e.g. classification, tabular, low_features)."
+                        },
+                        "description": { "type": "string" },
+                        "params": {
+                            "type": "object",
+                            "description": "Each key is a hyperparameter name; the value describes its type and bounds.",
+                            "additionalProperties": {
+                                "type": "object",
+                                "required": ["type"],
+                                "properties": {
+                                    "type": { "type": "string", "enum": ["int","float","choice","boolean"] },
+                                    "min":    { "type": "number" },
+                                    "max":    { "type": "number" },
+                                    "step":   { "type": "number" },
+                                    "values": { "type": "array", "items": {} },
+                                    "sampling": { "type": "string", "enum": ["linear","log"] }
+                                }
+                            }
+                        },
+                        "advice": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        },
+                        "source": { "type": "string" }
+                        }
+                    }
+                },"""
 
 
 

@@ -22,10 +22,7 @@ from config import kaggle_api
 from typing import Any, List, Tuple, Dict, Union,Optional
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Scrape competition pages & ask LLM for structured output
-# ─────────────────────────────────────────────────────────────────────────────
-
+# Scrape competition pages
 def fetch_competition_page_html(slug: str, driver=None) -> str:
     """
     Return fully rendered HTML for a competition page.
@@ -48,7 +45,7 @@ def ensure_folder(path: Path):
     path.mkdir(parents=True, exist_ok=True)
     return path
 
-
+# Parse data tab of the competition
 def parse_competition_data_tab(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     info = {}
@@ -85,7 +82,7 @@ def parse_competition_data_tab(html: str) -> dict:
         "files_list": files
     }
 
-
+# Parse the overview page 
 def parse_competition_metadata(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
 
@@ -119,7 +116,7 @@ def parse_competition_metadata(html: str) -> dict:
     dataset_desc = grab_section("Dataset Description")
     submission_fmt = grab_section("Submission File")
 
-    # 3) Build the combined markdown (if you still want it)
+    # 3) Build the combined markdown
     md_parts = []
     if overview:
         md_parts.append("## Description\n\n" + overview)
@@ -138,10 +135,8 @@ def parse_competition_metadata(html: str) -> dict:
 
 
 
-"""
-    Describe dataset 
-"""
 
+# Extract Dataset if it is archived  
 def extract_tabular(file_path: str) -> Tuple[Optional[tempfile.TemporaryDirectory], str]:
     """
     If file_path is an archive (.zip, .csv.zip, .tsv.zip, .7z, .gz),
@@ -189,7 +184,7 @@ def extract_tabular(file_path: str) -> Tuple[Optional[tempfile.TemporaryDirector
     return None, file_path
 
 
-
+# Condense large schemas for LLM token input
 def compact_profile_for_llm(
     profile: Dict[str,Any],
     max_features: int = 50,
@@ -206,8 +201,6 @@ def compact_profile_for_llm(
     if len(schema) <= max_features:
         collapsed_schema = schema
     else:
-        # your run‐detection & collapse logic here...
-        # (for brevity, imagine you’ve copied in your existing code)
         collapsed_schema = _collapse_schema_runs(schema)
 
     # 2) collapse target_summary
@@ -299,17 +292,12 @@ def _collapse_schema_runs(schema: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
             })
     return collapsed
 
-
+# Describe dataset schema
 def describe_schema(
     source_path: str,
     target_column: Union[str, List[str]]
 ) -> Dict[str, Any]:
-    """
-    1) Unpack archives or compressed files if needed
-    2) Auto-detect delimiter (comma, tab, semicolon), fallback to tab for .tsv
-    3) Load with pandas (python engine, skip bad lines)
-    4) Build a schema and target summary for one or more columns
-    """
+
     # 0) normalize target list
     if isinstance(target_column, str):
         targets = [target_column]
@@ -408,7 +396,7 @@ def download_train_file(slug: str, path, files_list: List[str]) -> List[Path]:
 
     local_paths = []
     for fname in files_list:
-        # skip if we already have it
+
         dest = comp_folder / fname
         if not dest.exists():
             kaggle_api.competition_download_file(
@@ -420,46 +408,25 @@ def download_train_file(slug: str, path, files_list: List[str]) -> List[Path]:
     return local_paths
 
 
-def select_hyperparameter_profile(comp_meta, hyperparameter_bank):
-    """
-    comp_meta is a dict containing:
-      - "competition_problem_type"
-      - "competition_problem_subtype"
-      - "data_profiles": filename → {
-            "dataset_schema": [ {name, type, …}, … ],
-            …
-        }
-    """
-    # Build metadata tags
+def select_hyperparameter_profile(comp_meta, bank):
     tags = {
-        comp_meta["competition_problem_type"],
-        comp_meta["competition_problem_subtype"],
+        comp_meta["competition_problem_type"], 
     }
+    for tok in comp_meta["competition_problem_subtype"].split("-"):
+        tags.add(tok)
 
-    # Take one profile to infer modality/feature count
-    sample_profile = next(iter(comp_meta["data_profiles"].values()))
+    sample = next(iter(comp_meta["data_profiles"].values()))
+    cols = {e["name"]: e["type"] for e in sample.get("dataset_schema", [])}
 
-    # **Convert** the list-of-dicts into a dict: name → type
-    columns = {
-        entry["name"]: entry["type"]
-        for entry in sample_profile.get("dataset_schema", [])
-    }
-
-    # 1) modality tag
-    if any(
-        t.startswith("object") or n.lower().endswith(("text", "comment"))
-        for n, t in columns.items()
-    ):
+    if any(t.startswith("object") or n.lower().endswith(("text","comment"))
+           for n,t in cols.items()):
         tags.add("text")
-    elif any(t in ("image_path", "filepath") for t in columns.values()):
-        tags.add("image")
-    elif any(t.startswith("datetime") for t in columns.values()):
+    elif any(t.startswith("datetime") for t in cols.values()):
         tags.add("time-series")
     else:
         tags.add("tabular")
 
-    # 2) feature‐count tag (subtract targets)
-    n_feats = len(columns) - len(comp_meta.get("target_column", []))
+    n_feats = len(cols) - (1 if comp_meta.get("target_column") else 0)
     if n_feats < 10:
         tags.add("low_features")
     elif n_feats < 500:
@@ -467,24 +434,46 @@ def select_hyperparameter_profile(comp_meta, hyperparameter_bank):
     else:
         tags.add("high_features")
 
-    # 3) missing‐values tag
-    # your schema uses "missing_pct" per column
-    if any(
-        entry.get("missing_pct", 0) > 0
-        for entry in sample_profile.get("dataset_schema", [])
-    ):
+    if any(e.get("missing_pct", 0) > 0 for e in sample.get("dataset_schema", [])):
         tags.add("missing-values")
 
-    # Score each profile
-    best_key, best_score = None, -1
-    for key, prof in hyperparameter_bank.items():
+    best, best_score = None, -1
+    for name, prof in bank.items():
         score = len(tags & set(prof["tags"]))
         if score > best_score:
-            best_key, best_score = key, score
+            best, best_score = name, score
+    return best
 
 
-    print(comp_meta["competition_problem_type"])
-    print(comp_meta["competition_problem_subtype"]) 
-    print(best_key) 
+def compact_profiles(profiles: dict, keep_targets=True):
+    compacted = []
+    for fname, prof in profiles.items():
+        entry = {
+            "file_name": fname,
+            "shape": prof["shape"]
+        }
+        if keep_targets:
+            tcols = [c["name"] for c in prof["dataset_schema"] if c["is_target"]]
+            entry["targets"] = tcols
+        compacted.append(entry)
+    return compacted
 
-    return best_key
+
+def profiles_dict_to_array(d):
+    if isinstance(d, list):
+        return d
+
+    out = []
+    for fname, prof in d.items():
+        entry = {"file_name": fname}
+        if "shape" in prof:
+            entry["shape"] = {
+                "rows": int(prof["shape"]["rows"]),
+                "cols": int(prof["shape"]["cols"]),
+            }
+        if "dataset_schema" in prof:
+            entry["dataset_schema"] = prof["dataset_schema"]
+        if "targets" in prof:         
+            entry["targets"] = prof["targets"]
+        out.append(entry)
+    return out

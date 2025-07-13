@@ -17,10 +17,10 @@ def find_similar_ids(
     exclude_competition: str = None,
     text_weight: float = 1.0
 ) -> list[tuple[str,float]]:
-    """
-    Load the exact encoders & weights from build_index, encode a new
-    competition’s text + cats, and return top_k most-similar row_ids.
-    """
+
+    #Load the exact encoders & weights from build_index, encode a new
+    #competition’s text + cats, and return top_k most-similar row_ids.
+
     # load index + row_ids
     index     = faiss.read_index(str(INDEX_DIR / "faiss_index.ip"))
     row_ids   = pickle.load((INDEX_DIR / "row_ids.pkl").open("rb"))

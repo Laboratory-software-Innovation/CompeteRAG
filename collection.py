@@ -93,11 +93,9 @@ def get_comp_files(slug: str):
         print(row[0])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Parsing a playground page for preprocessing steps -> NLP and parsing the code layers (tensorflow & pytorch)
-# ─────────────────────────────────────────────────────────────────────────────
 
-#  List of 147 Playground slugs (or however you get your list)
+#  List of 147 Playground slugs
 def parse_playground_kaggle(max_competitions: int = 5) -> list[str]:
     """
     Scrape Kaggle’s Playground filter pages (1–8) and return up to max_competitions slugs.
@@ -181,12 +179,8 @@ def parse_playground_kaggle_from(start_slug: str, max_competitions: int = 5) -> 
 
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Ask LLM for structured description and dataset description (tensorflow & pytorch)
-# ─────────────────────────────────────────────────────────────────────────────
-
 def ask_llm_for_structured_output(comp_meta: str, notebook_text: str) -> dict:
-    # 1) System prompt
     system_prompt = (
         "You are an expert data scientist. "
         "***Provide a dense and factual description of the competition_description, full dataset_metadata, exact problem type, subtype\n"
@@ -200,7 +194,6 @@ def ask_llm_for_structured_output(comp_meta: str, notebook_text: str) -> dict:
     )      
 
     
-    # 2) First user message: raw JSON payload
     payload = {
         "competition_metadata": comp_meta["competition_metadata"],
         "dataset_metadata": comp_meta["dataset_metadata"],
@@ -208,7 +201,6 @@ def ask_llm_for_structured_output(comp_meta: str, notebook_text: str) -> dict:
     }
     user_payload = json.dumps(payload, ensure_ascii=False)
 
-    # 3) Second user message: output‐format instructions
     user_instructions = (
             "Now produce EXACTLY the JSON described by the function schema—no extras, no markdown fences. "
         )    
@@ -236,7 +228,6 @@ def ask_llm_for_structured_output(comp_meta: str, notebook_text: str) -> dict:
         print("[WARN] No function_call.arguments at all")
         return None
 
-    # 1) Try strict JSON
     for loader in (json.loads, lambda s: json.loads(_trim_to_braces(s))):
         try:
             args = loader(raw)
@@ -244,14 +235,12 @@ def ask_llm_for_structured_output(comp_meta: str, notebook_text: str) -> dict:
         except Exception:
             args = None
     else:
-        # 2) Try Python literal
         try:
             args = ast.literal_eval(_trim_to_braces(raw))
         except Exception as e:
             print(f"[WARN] Couldn’t parse LLM output at all: {e}")
             return None
 
-    # 3) Validate required keys
     required = ask_structured_schema["parameters"]["required"]
     if not all(k in args for k in required):
         missing = [k for k in required if k not in args]
@@ -266,12 +255,8 @@ def _trim_to_braces(s: str) -> str:
     return s[i : j + 1] if i != -1 and j != -1 else s
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Collect Top‐Voted DL Notebooks (tensorflow & pytorch)
-# ─────────────────────────────────────────────────────────────────────────────
-
 def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.DataFrame:
-    # Determine CSV mode and write header only when starting fresh
     csv_mode = "w" if start is None else "a"
     write_header = start is None or not Path("notebooks_structured.csv").exists()
 
@@ -295,13 +280,6 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
             "kernel_link",
         ])
 
-    # # Fetch slugs, either fresh or resuming
-    # if start:
-    #     all_slugs = parse_playground_kaggle_from(start, num_competitions)
-    # else:
-    #     all_slugs = parse_playground_kaggle(num_competitions)
-
-
     records = []
     driver = init_selenium_driver()
 
@@ -313,12 +291,10 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
         comp_folder = Path("train") / slug
         comp_folder.mkdir(parents=True, exist_ok=True)
 
-        # — 1) Scrape & parse HTML →
         html      = fetch_competition_page_html(slug, driver)
         comp_meta = parse_competition_metadata(html)
         comp_meta["slug"] = slug
 
-        # now fetch & parse the /data tab
         data_html = fetch_competition_page_html(f"{slug}/data", driver)
         temp = parse_competition_data_tab(data_html)  
         comp_meta["dataset_metadata"] =  temp["dataset_metadata"]
@@ -331,7 +307,7 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
         print(comp_meta["evaluation_metrics"])        
 
         
-        ##In case we need to download them
+        ##In case we need to download them (not necessary for training dataset)
         # downloaded_paths = download_train_file(
         #     comp_meta["slug"],
         #     comp_folder,

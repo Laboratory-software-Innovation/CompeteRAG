@@ -21,9 +21,7 @@ logging.set_verbosity_error()
 
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Command‐Line Interface
-# ─────────────────────────────────────────────────────────────────────────────
 
 def print_usage():
     print("""
@@ -78,7 +76,7 @@ if __name__ == "__main__":
             print("Usage: python rag.py code <top-k> <keras-tuner 0|1> <slug: optional, to start at a certain competition>")
             sys.exit(1)
 
-        start_time = time.time()
+        
 
         top_k = int(sys.argv[2])  
         kt    = bool(int(sys.argv[3]))
@@ -88,8 +86,8 @@ if __name__ == "__main__":
 
         if kt == 0: 
             for slug in test: 
+                start_time = time.time()
                 if(slug == "conway-s-reverse-game-of-life_solution"): break
-
                 if run == 1 or slug == comp: 
                     run = 1
                     print(slug)
@@ -106,6 +104,7 @@ if __name__ == "__main__":
                     print("---------------------------")
         else: 
             for slug in test: 
+                start_time = time.time()
                 if run == 1 or slug == comp: 
                     run = 1
                     print(slug)
