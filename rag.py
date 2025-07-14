@@ -8,11 +8,10 @@ import transformers.modeling_utils as mutils
 from transformers.utils import import_utils
 
 
-from collection    import collect_and_structured
-from encoding      import build_index
-from similarity    import find_similar_ids as find_similar_from_description
-from llm_coding    import solve_competition_keras,solve_competition_tuner, followup_prompt
-from comps         import test
+from src.collection    import collect_and_structured
+from src.encoding      import build_index
+from src.llm_coding    import solve_competition_keras,solve_competition_tuner,followup_prompt
+from src.comps         import test
 
 mutils.check_torch_load_is_safe = lambda *args, **kwargs: None
 import_utils.check_torch_load_is_safe = lambda *args, **kwargs: None

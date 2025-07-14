@@ -16,7 +16,7 @@ from nbformat import read as nb_read
 from nbconvert import PythonExporter
 
 import openai
-from selenium_helper import init_selenium_driver
+from helpers.selenium_helper import init_selenium_driver
 from config import OPENAI_MODEL,EXCEL_FILE
 from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab,describe_schema, extract_tabular, download_train_file
 from prompts import label_competition_schema, ask_structured_schema
@@ -91,91 +91,6 @@ def get_comp_files(slug: str):
     next(reader, None)  
     for row in reader:
         print(row[0])
-
-
-# Parsing a playground page for preprocessing steps -> NLP and parsing the code layers (tensorflow & pytorch)
-
-#  List of 147 Playground slugs
-def parse_playground_kaggle(max_competitions: int = 5) -> list[str]:
-    """
-    Scrape Kaggle’s Playground filter pages (1–8) and return up to max_competitions slugs.
-    """
-    slugs: list[str] = []
-    driver = init_selenium_driver()
-
-    pattern = re.compile(r"^/competitions/([A-Za-z0-9].*)$")
-    for page_num in range(1, 9):
-        url = f"https://www.kaggle.com/competitions?hostSegmentIdFilter=8&page={page_num}"
-        driver.get(url)
-        try:
-            WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, 'a[href^="/competitions/"]'))
-            )
-        except:
-            continue
-
-        soup = BeautifulSoup(driver.page_source, "html.parser")
-        for a in soup.select('a[href^="/competitions/"]'):
-            href = a["href"]
-            m = pattern.match(href)
-            if not m:
-                continue
-            slug = m.group(1).split("?")[0]
-            if slug not in slugs:
-                slugs.append(slug)
-                if len(slugs) >= max_competitions:
-                    driver.quit()
-                    return slugs
-
-    driver.quit()
-    return slugs
-
-
-def parse_playground_kaggle_from(start_slug: str, max_competitions: int = 5) -> list[str]:
-    """
-    Scrape Kaggle’s Playground filter pages (1–8) and return up to max_competitions slugs
-    starting with the given start_slug as the first entry. If start_slug is not found,
-    it collects from the very beginning.
-    """
-    slugs: list[str] = []
-    driver = init_selenium_driver()
-    pattern = re.compile(r"^/competitions/([A-Za-z0-9].*)$")
-    started = start_slug is None
-
-    for page_num in range(1, 9):
-        url = f"https://www.kaggle.com/competitions?hostSegmentIdFilter=8&page={page_num}"
-        driver.get(url)
-        try:
-            WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, 'a[href^="/competitions/"]'))
-            )
-        except:
-            continue
-
-        soup = BeautifulSoup(driver.page_source, "html.parser")
-        for a in soup.select('a[href^="/competitions/"]'):
-            href = a["href"]
-            m = pattern.match(href)
-            if not m:
-                continue
-            slug = m.group(1).split("?")[0]
-
-            if not started:
-                if slug == start_slug:
-                    started = True
-                    slugs.append(slug)
-                else:
-                    continue
-            else:
-                if slug not in slugs:
-                    slugs.append(slug)
-
-            if len(slugs) >= max_competitions:
-                driver.quit()
-                return slugs
-
-    driver.quit()
-    return slugs
 
 
 
