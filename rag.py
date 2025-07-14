@@ -14,7 +14,6 @@ from similarity    import find_similar_ids as find_similar_from_description
 from llm_coding    import solve_competition_keras,solve_competition_tuner, followup_prompt
 from comps         import test
 
-# Monkey-patches
 mutils.check_torch_load_is_safe = lambda *args, **kwargs: None
 import_utils.check_torch_load_is_safe = lambda *args, **kwargs: None
 logging.set_verbosity_error()
@@ -26,15 +25,14 @@ logging.set_verbosity_error()
 def print_usage():
     print("""
         Usage:
-        python rag.py cb            - Collect and build 
-        python rag.py find_similar
-        python rag.py find_similar_desc <description.txt> [notebooks|comps] [top_k]
-
-        Examples:
-        python rag.py find_similar_desc my_problem.txt notebooks 5
-        python rag.py find_similar_desc my_problem.txt comps 10
+        python rag.py cb            - Collect notebooks and metadata and build a matrix 
+        python rag.py cb <slug>     - Collect notebooks and metadata and build a matrix starting from a certain competition
+          
+        python rag.py code                 - Build solutions for all the testing competitions in the comps.py and provides one solutions example
+        python rag.py code <top-k>         - Build solutions for all the testing competitions in the comps.py and provides k solutions
+        python rag.py code <slug>          - Same, just starts from a certain competition, goes down the list and provides one solutions example
+        python rag.py code <slug> <top-k>  - Starts from a certain competition and also provides k solutions
     """)
-
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -47,79 +45,70 @@ if __name__ == "__main__":
         start_slug = sys.argv[2] if len(sys.argv) >= 3 else None
         df_struct = collect_and_structured(max_per_keyword=5, start=start_slug)
         print(f"[OK] Collected and structured {len(df_struct)} notebooks.")
-    elif cmd == 'b':
         if not Path("notebooks_structured.csv").exists():
             print("[ERROR] Please run `collect_and_structured` first.")
             sys.exit(1)
         df_struct = pd.read_csv("notebooks_structured.csv")
         build_index(df_struct)
         sys.exit(0)
-    elif cmd == "fd":
-        # Usage: python3 rag.py fd <desc_and_meta.json> <top_k> [<exclude_competition>]
-        if len(sys.argv) < 4:
-            print("Usage: python3 rag.py fd <desc_meta.json> <top_k> [<exclude_competition>]")
+
+    elif cmd == "b":
+        if not Path("notebooks_structured.csv").exists():
+            print("[ERROR] Please run `collect_and_structured` first.")
             sys.exit(1)
-
-        desc_json    = sys.argv[2]
-        top_k        = int(sys.argv[3])
-        exclude_comp = sys.argv[4] if len(sys.argv) >= 5 else None
-
-        find_similar_from_description(
-            desc_json,
-            top_k=top_k,
-            exclude_competition=exclude_comp
-        )
+        df_struct = pd.read_csv("notebooks_structured.csv")
+        build_index(df_struct)
         sys.exit(0)
 
     elif cmd == "code":
-        if len(sys.argv) < 4:
-            print("Usage: python rag.py code <top-k> <keras-tuner 0|1> <slug: optional, to start at a certain competition>")
+        if len(sys.argv) < 3:
+            print("Usage: python rag.py code <keras-tuner 0|1> [slug - optional] [top-k - optional, default = 1, 1-9]")
             sys.exit(1)
 
-        
-
-        top_k = int(sys.argv[2])  
-        kt    = bool(int(sys.argv[3]))
-        comp = None if len(sys.argv) < 5 else sys.argv[4]
-
-        run = 1 if comp is None else 0
-
-        if kt == 0: 
-            for slug in test: 
-                start_time = time.time()
-                if(slug == "conway-s-reverse-game-of-life_solution"): break
-                if run == 1 or slug == comp: 
-                    run = 1
-                    print(slug)
-                    notebook_code = solve_competition_keras(
-                        slug = slug,
-                        structured_csv= "notebooks_structured.csv",
-                        top_k         = top_k
-                    )
-                    out_path = Path(f"test/{slug}/{slug}_solution.py")
-                    out_path.write_text(notebook_code, encoding="utf-8")
-                    print(f"[OK] Solution code written to {out_path}")
-                    print("---------------------------")
-                    print(time.time() - start_time)
-                    print("---------------------------")
-        else: 
-            for slug in test: 
-                start_time = time.time()
-                if run == 1 or slug == comp: 
-                    run = 1
-                    print(slug)
-                    notebook_code = solve_competition_tuner(
-                        slug = slug, 
-                    )
-                    out_path = Path(f"test/{slug}/{slug}_kt_solution.py")
-                    out_path.write_text(notebook_code, encoding="utf-8")
-                    print(f"[OK] Solution code written to {out_path}")
-                    print("---------------------------")
-                    print(time.time() - start_time)
-                    print("---------------------------")
+        kt = bool(int(sys.argv[2]))
+        comp = None
+        top_k = 1
+        extra = sys.argv[3:]
 
 
+        if extra:
+            if len(extra) == 1 and extra[0].isdigit():
+                top_k = int(extra[0])
+            else:
+                comp = extra[0]
+                if len(extra) > 1 and extra[1].isdigit():
+                    top_k = int(extra[1])
 
+        if kt:
+            solve = "keras"
+            solve = lambda slug: solve_competition_tuner(slug=slug)
+            suffix = "kt_solution.py"
+        else:
+            solve = lambda slug: solve_competition_keras(
+                slug=slug,
+                structured_csv="notebooks_structured.csv",
+                top_k=top_k
+            )
+            suffix = "solution.py"
+
+        first = comp is None
+        for slug in test:
+            
+            if not first and slug != comp:
+                continue
+            first = True
+
+            start = time.time()
+            print(slug)
+            code_str = solve(slug)
+
+            out_path = Path(f"test/{slug}/{slug}_{suffix}")
+            out_path.write_text(code_str, encoding="utf-8")
+
+            print(f"[OK] Written to {out_path}")
+            print("-" * 27)
+            print(time.time() - start)
+            print("-" * 27)
 
 
     elif cmd == "followup":
@@ -128,11 +117,12 @@ if __name__ == "__main__":
 
         # Usage: python rag.py followup <slug> <keras-tuner>
         if len(sys.argv) != 4:
-            print("Usage: python rag.py followup <slug> <keras-tuner 0|1>")
+            print("Usage: python rag.py followup <keras-tuner 0|1> <slug>")
             sys.exit(1)
 
-        slug       = sys.argv[2]
-        kt         = bool(int(sys.argv[3]))
+        kt         = bool(int(sys.argv[2]))
+        slug       = sys.argv[3]
+        
 
         print(slug)
         try:

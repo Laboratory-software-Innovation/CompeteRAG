@@ -1,2 +1,5 @@
 .env
 */.env
+test
+train
+bc.py

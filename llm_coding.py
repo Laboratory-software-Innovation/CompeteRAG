@@ -140,7 +140,9 @@ def compact(comp_struct):
 
         return range_specs
 
-
+# ------------------------------
+#             Keras
+# ------------------------------
 def generate_keras_schema_impl(tool_inputs: dict) -> str:
 
     print("INPUT ARGS:")

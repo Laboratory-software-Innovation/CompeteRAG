@@ -4,18 +4,11 @@ from selenium.webdriver.firefox.service import Service as FirefoxService
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from webdriver_manager.firefox import GeckoDriverManager
 
-# If Firefox is in a nonstandard location, set that here.
-# Otherwise leave as None and let webdriver-manager find it on PATH.
+
 FIREFOX_BINARY_PATH = None
-# Example (Ubuntu DEB): "/usr/bin/firefox"
-# Example (custom build): "/opt/firefox/firefox"
+
 
 def init_selenium_driver() -> webdriver.Firefox:
-    """
-    Return a headless Firefox WebDriver instance.
-    If FIREFOX_BINARY_PATH is set, point FirefoxOptions.binary_location there.
-    Otherwise rely on webdriver-manager to install geckodriver.
-    """
     firefox_options = FirefoxOptions()
     firefox_options.add_argument("--headless")
     firefox_options.add_argument("--disable-gpu")
