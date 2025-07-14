@@ -3,3 +3,4 @@
 test
 train
 bc.py
+__pycache__
