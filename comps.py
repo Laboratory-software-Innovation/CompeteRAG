@@ -39,6 +39,7 @@ train = ["playground-series-s4e8",
 "tabular-playground-series-mar-2021",
 "tabular-playground-series-feb-2021",
 "tabular-playground-series-jan-2021",
+"tabular-playground-series-oct-2022",
 "cat-in-the-dat",
 "dont-overfit-ii",
 "tmdb-box-office-prediction",
@@ -48,7 +49,6 @@ train = ["playground-series-s4e8",
 "ciphertext-challenge-iii",
 "20-newsgroups-ciphertext-challenge",
 "Kannada-MNIST",
-"poker-rule-induction",
 "sf-crime",
 "shelter-animal-outcomes",
 "integer-sequence-learning",
@@ -76,18 +76,17 @@ test = [
 "playground-series-s4e10",
 "playground-series-s4e9",
 
-"tabular-playground-series-oct-2022",
+
 "tabular-playground-series-feb-2022",
 "tabular-playground-series-may-2022",
 "tabular-playground-series-jun-2022",
 "tabular-playground-series-aug-2021",
 
+"poker-rule-induction",
 "cat-in-the-dat-ii",
 "forest-cover-type-prediction",
 "conway-s-reverse-game-of-life",
 
 "nyc-taxi-trip-duration",
 "crowdflower-weather-twitter",
-
-
 ]

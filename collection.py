@@ -17,19 +17,15 @@ from nbconvert import PythonExporter
 
 import openai
 from selenium_helper import init_selenium_driver
-from config import OPENAI_MODEL,EXCEL_FILE,MAX_NOTEBOOK_TOKENS,ENCODER,kaggle_api
-from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab,describe_schema, download_train_file, extract_tabular
+from config import OPENAI_MODEL,EXCEL_FILE
+from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab,describe_schema, extract_tabular, download_train_file
 from prompts import label_competition_schema, ask_structured_schema
 from comps import train
 
 #Get the target column
 def label_competition(comp_meta: dict) -> dict:
-    """
-    Calls the LLM to extract:
-      - target_column: list of all label columns in train.csv
-      - training_files: list of all tabular files to download
-    from the competition_metadata and dataset_metadata.
-    """
+
+    
     # build our messages
     system_msg = {
         "role": "system",
@@ -38,6 +34,7 @@ def label_competition(comp_meta: dict) -> dict:
             "Use the provided competition_metadata and dataset_metadata to fill exactly two fields:\n"
             "  1) target_column: an array of all column names in the dataset that must be predicted\n"
             "  2) training_files: Based on dataset_metadata give [<string>, …],  an array of all training tabular files that need to be downloaded\n"
+            "  3) evaluation_metrics: based on the competition_metadata, retrieve the evaluation metrics used in the competition"
             "Emit ONLY those two keys as JSON—no extra keys, no prose, no markdown."
         )
     }
@@ -68,6 +65,7 @@ def label_competition(comp_meta: dict) -> dict:
     args = json.loads(content.function_call.arguments)
     target_cols    = args.get("target_column", [])
     training_files = args.get("training_files", [])
+    evaluation_metrics =  args.get("evaluation_metrics", [])
 
     # normalize to lists
     if isinstance(target_cols, str):
@@ -77,7 +75,8 @@ def label_competition(comp_meta: dict) -> dict:
 
     return {
         "target_column":  target_cols,
-        "training_files": training_files
+        "training_files": training_files,
+        "evaluation_metrics": evaluation_metrics
     }
 
 
@@ -94,11 +93,9 @@ def get_comp_files(slug: str):
         print(row[0])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Parsing a playground page for preprocessing steps -> NLP and parsing the code layers (tensorflow & pytorch)
-# ─────────────────────────────────────────────────────────────────────────────
 
-#  List of 147 Playground slugs (or however you get your list)
+#  List of 147 Playground slugs
 def parse_playground_kaggle(max_competitions: int = 5) -> list[str]:
     """
     Scrape Kaggle’s Playground filter pages (1–8) and return up to max_competitions slugs.
@@ -182,12 +179,8 @@ def parse_playground_kaggle_from(start_slug: str, max_competitions: int = 5) -> 
 
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Ask LLM for structured description and dataset description (tensorflow & pytorch)
-# ─────────────────────────────────────────────────────────────────────────────
-
 def ask_llm_for_structured_output(comp_meta: str, notebook_text: str) -> dict:
-    # 1) System prompt
     system_prompt = (
         "You are an expert data scientist. "
         "***Provide a dense and factual description of the competition_description, full dataset_metadata, exact problem type, subtype\n"
@@ -201,7 +194,6 @@ def ask_llm_for_structured_output(comp_meta: str, notebook_text: str) -> dict:
     )      
 
     
-    # 2) First user message: raw JSON payload
     payload = {
         "competition_metadata": comp_meta["competition_metadata"],
         "dataset_metadata": comp_meta["dataset_metadata"],
@@ -209,7 +201,6 @@ def ask_llm_for_structured_output(comp_meta: str, notebook_text: str) -> dict:
     }
     user_payload = json.dumps(payload, ensure_ascii=False)
 
-    # 3) Second user message: output‐format instructions
     user_instructions = (
             "Now produce EXACTLY the JSON described by the function schema—no extras, no markdown fences. "
         )    
@@ -237,7 +228,6 @@ def ask_llm_for_structured_output(comp_meta: str, notebook_text: str) -> dict:
         print("[WARN] No function_call.arguments at all")
         return None
 
-    # 1) Try strict JSON
     for loader in (json.loads, lambda s: json.loads(_trim_to_braces(s))):
         try:
             args = loader(raw)
@@ -245,14 +235,12 @@ def ask_llm_for_structured_output(comp_meta: str, notebook_text: str) -> dict:
         except Exception:
             args = None
     else:
-        # 2) Try Python literal
         try:
             args = ast.literal_eval(_trim_to_braces(raw))
         except Exception as e:
             print(f"[WARN] Couldn’t parse LLM output at all: {e}")
             return None
 
-    # 3) Validate required keys
     required = ask_structured_schema["parameters"]["required"]
     if not all(k in args for k in required):
         missing = [k for k in required if k not in args]
@@ -267,12 +255,141 @@ def _trim_to_braces(s: str) -> str:
     return s[i : j + 1] if i != -1 and j != -1 else s
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Collect Top‐Voted DL Notebooks (tensorflow & pytorch)
-# ─────────────────────────────────────────────────────────────────────────────
 
+def collect_tagged_kernels(
+    slug: str,
+    tag: str,                      # "tensorflow"  /  "pytorch"
+    max_keep: int,
+    comp_folder: Path,
+    comp_meta: dict,
+    csv_writer: csv.writer,
+    records: list,
+    py_exporter: PythonExporter,
+) -> int:
+
+    kept = 0
+
+
+    try:
+        proc = subprocess.run(
+            ["kaggle","kernels","list",
+             "--competition", slug,
+             "-s", tag,
+             "--sort-by","voteCount",
+             "--page-size","50",
+             "-v"],
+            capture_output=True, text=True, check=True
+        )
+        df = pd.read_csv(pd.io.common.StringIO(proc.stdout))
+    except Exception as e:
+        print(f"[WARN] {tag} list failed for {slug}: {e}")
+        return 0
+
+
+    for _, row in df.iterrows():
+        if kept >= max_keep:
+            break
+
+        kernel_ref = row["ref"]                    # "user/kernel"
+        username, kernel_name = kernel_ref.split("/", 1)
+        kernel_link = f"https://www.kaggle.com/{kernel_ref}"
+
+        ipynb_path = comp_folder / f"{kernel_name}.ipynb"
+        py_path    = comp_folder / f"{kernel_name}.py"
+
+
+        if not (ipynb_path.exists() or py_path.exists()):
+            try:
+                subprocess.run(
+                    ["kaggle", "kernels", "pull", kernel_ref, "-p", str(comp_folder)],
+                    check=True
+                )
+            except Exception as e:
+                print(f"   [WARN] pull failed {kernel_ref}: {e}")
+                continue
+
+
+        if ipynb_path.exists():
+            final_path, lang = ipynb_path, "ipynb"
+            try:
+                with open(final_path, "r", encoding="utf-8") as f:
+                    nb_node = nb_read(f, as_version=4)
+                text_content, _ = py_exporter.from_notebook_node(nb_node)
+            except Exception as e:
+                print(f"   [WARN] nb read {kernel_ref}: {e}")
+                continue
+        elif py_path.exists():
+            final_path, lang = py_path, "py"
+            try:
+                text_content = py_path.read_text(encoding="utf-8", errors="ignore")
+            except Exception as e:
+                print(f"   [WARN] py read {kernel_ref}: {e}")
+                continue
+        else:
+            print(f"   [WARN] no file for {kernel_ref}")
+            continue
+
+
+        struct = ask_llm_for_structured_output(comp_meta, text_content)
+        if not struct:
+            continue
+
+        if struct.get("used_technique","").upper()!="DL" \
+           or struct.get("library","").lower()!=tag:
+            continue 
+
+        csv_writer.writerow([
+            comp_meta["slug"],
+            struct["competition_problem_type"],
+            struct["competition_problem_subtype"],
+            struct["competition_problem_description"],
+            struct["competition_dataset_type"],
+            comp_meta["evaluation_metrics"],
+            struct["dataset_metadata"],
+            struct["target_column"], 
+            json.dumps(struct["preprocessing_steps"], ensure_ascii=False),
+            struct["notebook_model_layers_code"],
+            struct["used_technique"],
+            struct["library"],
+            kernel_ref, 
+            kernel_link,
+            #struct["training_files"]
+        ])
+
+        # Build the combined record
+        records.append({
+            "competition_slug":                comp_meta["slug"],
+            "competition_problem_type":        struct["competition_problem_type"],
+            "competition_problem_subtype":     struct["competition_problem_subtype"],
+            "competition_problem_description": struct["competition_problem_description"],
+            "competition_dataset_type":        struct["competition_dataset_type"],
+            "evaluation_metrics":              comp_meta["evaluation_metrics"],
+            "dataset_metadata":                struct["dataset_metadata"],
+            "target_column":                   struct["target_column"],
+            "preprocessing_steps":             struct["preprocessing_steps"],
+            "notebook_model_layers_code":      struct["notebook_model_layers_code"],
+            "used_technique":                  struct["used_technique"],   # "DL"
+            "library":                         struct["library"],          # "TensorFlow"
+            "kernel_ref":                      kernel_ref,
+            "kernel_link":                     kernel_link,
+            #"training_files":                  struct["training_files"],
+            "username":                        username,
+            "last_run_date":                   row.get("lastRunTime"),
+            "votes":                           row.get("totalVotes"),
+            "downloaded_path":                 str(final_path),
+            "language":                        lang,
+            "dl_keyword":                      "tensorflow"
+        })
+
+        kept += 1
+        print(f"   [KEPT→{tag.upper()}] {kernel_ref} (votes={row.get('totalVotes',0)})")
+
+    return kept
+
+
+
+# Collect Top‐Voted DL Notebooks (tensorflow & pytorch)
 def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.DataFrame:
-    # Determine CSV mode and write header only when starting fresh
     csv_mode = "w" if start is None else "a"
     write_header = start is None or not Path("notebooks_structured.csv").exists()
 
@@ -285,6 +402,7 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
             "competition_problem_subtype",
             "competition_problem_description",
             "competition_dataset_type",
+            "evaluation_metrics",
             "dataset_metadata",
             "target_column", 
             "preprocessing_steps",
@@ -292,16 +410,8 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
             "used_technique",
             "library",
             "kernel_ref",
-            "kernel_link"
-            "training_files"
+            "kernel_link",
         ])
-
-    # # Fetch slugs, either fresh or resuming
-    # if start:
-    #     all_slugs = parse_playground_kaggle_from(start, num_competitions)
-    # else:
-    #     all_slugs = parse_playground_kaggle(num_competitions)
-
 
     records = []
     driver = init_selenium_driver()
@@ -314,12 +424,10 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
         comp_folder = Path("train") / slug
         comp_folder.mkdir(parents=True, exist_ok=True)
 
-        # — 1) Scrape & parse HTML →
         html      = fetch_competition_page_html(slug, driver)
         comp_meta = parse_competition_metadata(html)
         comp_meta["slug"] = slug
 
-        # now fetch & parse the /data tab
         data_html = fetch_competition_page_html(f"{slug}/data", driver)
         temp = parse_competition_data_tab(data_html)  
         comp_meta["dataset_metadata"] =  temp["dataset_metadata"]
@@ -327,284 +435,25 @@ def collect_and_structured(max_per_keyword: int = 5, start: str = None) -> pd.Da
 
         labels = label_competition(comp_meta)
         comp_meta.update(labels)
+
+
         print(comp_meta["target_column"])
-        print(comp_meta["training_files"])
-        ##In case we need to download them
-        # downloaded_paths = download_train_file(
-        #     comp_meta["slug"],
-        #     comp_folder,
-        #     comp_meta["training_files"]
-        # )
+        print(comp_meta["evaluation_metrics"])        
 
-        # # 3) profile each one
-        # all_schemas = {}
-        # for p in downloaded_paths:
-        #     tabular = extract_tabular(str(p))
-        #     schema = describe_schema(
-        #         source_path=tabular,
-        #         target_column=comp_meta["target_column"]
-        #     )
-        #     all_schemas[p.name] = schema
+        
 
-        # # now you have a dict mapping each filename → its profile
-        # comp_meta["data_profiles"] = all_schemas
-        # print(comp_meta["data_profiles"])
 
         py_exporter = PythonExporter()
 
-
         tf_count, pt_count = 0, 0
 
+        tf_count = collect_tagged_kernels(slug, "tensorflow", max_per_keyword,
+                                    comp_folder, comp_meta,
+                                    csv_writer, records, py_exporter)
 
-        # ───── (A) List TensorFlow‐tagged kernels ─────
-        try:
-            proc_tf = subprocess.run(
-                [
-                    "kaggle", "kernels", "list",
-                    "--competition", slug,
-                    "-s", "tensorflow",
-                    "--sort-by", "voteCount",
-                    "--page-size", "50",
-                    "-v",  # CSV output
-                ],
-                capture_output=True, text=True, check=True
-            )
-            df_tf = pd.read_csv(pd.io.common.StringIO(proc_tf.stdout))
-        except Exception as e:
-            print(f"[WARN] TF list failed for {slug}: {e}")
-            df_tf = pd.DataFrame()
-
-        # ───── (B) Iterate TF candidates: download → LLM → keep/drop ─────
-        for _, row in df_tf.iterrows():
-
-            if tf_count >= max_per_keyword:
-                break
-
-            kernel_ref = row["ref"]  # e.g. "username/kernel‐slug"
-            username, kernel_name = kernel_ref.split("/", 1)
-            kernel_link = f"https://www.kaggle.com/{kernel_ref}"
-
-            # Possible local filenames
-            ipynb_path = comp_folder / f"{kernel_name}.ipynb"
-            py_path    = comp_folder / f"{kernel_name}.py"
-
-            # Download if neither exists
-            if not (ipynb_path.exists() or py_path.exists()):
-                try:
-                    subprocess.run(
-                        ["kaggle", "kernels", "pull", kernel_ref, "-p", str(comp_folder)],
-                        check=True
-                    )
-                except Exception as e:
-                    print(f"   [WARN] Failed to pull {kernel_ref}: {e}")
-                    continue
-
-            # Choose whichever file actually exists
-            if ipynb_path.exists():
-                final_path = ipynb_path
-                lang = "ipynb"
-            elif py_path.exists():
-                final_path = py_path
-                lang = "py"
-            else:
-                print(f"   [WARN] Neither {ipynb_path} nor {py_path} found for {kernel_ref}. Skipping.")
-                continue
-
-            # Read the notebook (full text)
-            try:
-                if lang == "ipynb":
-                    # load the notebook
-                    with open(final_path, "r", encoding="utf-8") as f:
-                        nb_node = nb_read(f, as_version=4)
-                    # export to .py text
-                    text_content, _ = py_exporter.from_notebook_node(nb_node)
-                else:
-                    # just read the .py file
-                    with open(final_path, "r", encoding="utf-8", errors="ignore") as f:
-                        text_content = f.read()
-            except Exception as e:
-                print(f"   [WARN] Failed to extract text from {final_path}: {e}")
-                text_content = ""
-
-            # Immediately ask the LLM for structured output
-            struct = ask_llm_for_structured_output(comp_meta, text_content)
-
-
-            if struct is None:
-                continue
-
-            # Only keep if LLM says “used_technique” == “DL” AND library == “TensorFlow”
-            if struct.get("used_technique", "").upper() == "DL" and \
-            struct.get("library", "").lower() == "tensorflow":
-            
-                print("TARGET-TF: " + str(struct["target_column"]))
-
-                # Write that ten‐field JSON into our CSV (only DL entries)
-                csv_writer.writerow([
-                    comp_meta["slug"],
-                    struct["competition_problem_type"],
-                    struct["competition_problem_subtype"],
-                    struct["competition_problem_description"],
-                    struct["competition_dataset_type"],
-                    struct["dataset_metadata"],
-                    struct["target_column"], 
-                    json.dumps(struct["preprocessing_steps"], ensure_ascii=False),
-                    struct["notebook_model_layers_code"],
-                    struct["used_technique"],
-                    struct["library"],
-                    kernel_ref, 
-                    kernel_link,
-                    #struct["training_files"]
-                ])
-
-                # Build the combined record
-                rec = {
-                    "competition_slug":                comp_meta["slug"],
-                    "competition_problem_type":        struct["competition_problem_type"],
-                    "competition_problem_subtype":     struct["competition_problem_subtype"],
-                    "competition_problem_description": struct["competition_problem_description"],
-                    "competition_dataset_type":        struct["competition_dataset_type"],
-                    "dataset_metadata":                struct["dataset_metadata"],
-                    "target_column":                   struct["target_column"],
-                    "preprocessing_steps":             struct["preprocessing_steps"],
-                    "notebook_model_layers_code":      struct["notebook_model_layers_code"],
-                    "used_technique":                  struct["used_technique"],   # "DL"
-                    "library":                         struct["library"],          # "TensorFlow"
-                    "kernel_ref":                      kernel_ref,
-                    "kernel_link":                     kernel_link,
-                    #"training_files":                  struct["training_files"],
-                    "username":                        username,
-                    "last_run_date":                   row.get("lastRunTime"),
-                    "votes":                           row.get("totalVotes"),
-                    "downloaded_path":                 str(final_path),
-                    "language":                        lang,
-                    "dl_keyword":                      "tensorflow"
-                }
-                records.append(rec)
-                tf_count += 1
-                print(f"   [KEPT→TF] {kernel_ref}  (votes={row.get('totalVotes', 0)})")
-
-        # ───── (C) Now do the same for PyTorch‐tagged kernels ─────
-        try:
-            proc_pt = subprocess.run(
-                [
-                    "kaggle", "kernels", "list",
-                    "--competition", slug,
-                    "-s", "pytorch",
-                    "--sort-by", "voteCount",
-                    "--page-size", "50",
-                    "-v",  # CSV output
-                ],
-                capture_output=True, text=True, check=True
-            )
-            df_pt = pd.read_csv(pd.io.common.StringIO(proc_pt.stdout))
-        except Exception as e:
-            print(f"[WARN] PT list failed for {slug}: {e}")
-            df_pt = pd.DataFrame()
-
-        for _, row in df_pt.iterrows():
-            if tf_count == 1: break
-            if pt_count >= max_per_keyword:
-                break
-
-            kernel_ref = row["ref"]
-            username, kernel_name = kernel_ref.split("/", 1)
-            kernel_link = f"https://www.kaggle.com/{kernel_ref}"
-
-            ipynb_path = comp_folder / f"{kernel_name}.ipynb"
-            py_path    = comp_folder / f"{kernel_name}.py"
-
-            if not (ipynb_path.exists() or py_path.exists()):
-                try:
-                    subprocess.run(
-                        ["kaggle", "kernels", "pull", kernel_ref, "-p", str(comp_folder)],
-                        check=True
-                    )
-                except Exception as e:
-                    print(f"   [WARN] Failed to pull {kernel_ref}: {e}")
-                    continue
-
-            if ipynb_path.exists():
-                final_path = ipynb_path
-                lang = "ipynb"
-            elif py_path.exists():
-                final_path = py_path
-                lang = "py"
-            else:
-                print(f"   [WARN] Neither {ipynb_path} nor {py_path} found for {kernel_ref}. Skipping.")
-                continue
-
-            # Read the notebook’s contents
-            try:
-                if lang == "ipynb":
-                    # load the notebook
-                    with open(final_path, "r", encoding="utf-8") as f:
-                        nb_node = nb_read(f, as_version=4)
-                    # export to .py text
-                    text_content, _ = py_exporter.from_notebook_node(nb_node)
-                else:
-                    # just read the .py file
-                    with open(final_path, "r", encoding="utf-8", errors="ignore") as f:
-                        text_content = f.read()
-            except Exception as e:
-                print(f"   [WARN] Failed to extract text from {final_path}: {e}")
-                text_content = ""
-
-                
-            struct = ask_llm_for_structured_output(comp_meta, text_content)
-            
-            if struct is None:
-                continue
-
-            # Only keep if LLM says “used_technique” == “DL” AND library == “PyTorch”
-            if struct.get("used_technique", "").upper() == "DL" and \
-            struct.get("library", "").lower() == "pytorch":
-        
-                print("TARGET-PYT: " + str(struct["target_column"]))
-
-                # Write that ten‐field JSON into our CSV
-                csv_writer.writerow([
-                    comp_meta["slug"],
-                    struct["competition_problem_type"],
-                    struct["competition_problem_subtype"],
-                    struct["competition_problem_description"],
-                    struct["competition_dataset_type"],
-                    struct["dataset_metadata"],
-                    struct["target_column"], 
-                    json.dumps(struct["preprocessing_steps"], ensure_ascii=False),
-                    struct["notebook_model_layers_code"],
-                    struct["used_technique"],
-                    struct["library"],
-                    kernel_ref,
-                    kernel_link,
-                    #struct["training_files"]
-                ])
-
-                rec = {
-                    "competition_slug":                comp_meta["slug"],
-                    "competition_problem_type":        struct["competition_problem_type"],
-                    "competition_problem_subtype":     struct["competition_problem_subtype"],
-                    "competition_problem_description": struct["competition_problem_description"],
-                    "competition_dataset_type":        struct["competition_dataset_type"],
-                    "dataset_metadata":                struct["dataset_metadata"],
-                    "target_column":                   struct["target_column"],
-                    "preprocessing_steps":             struct["preprocessing_steps"],
-                    "notebook_model_layers_code":      struct["notebook_model_layers_code"],
-                    "used_technique":                  struct["used_technique"],   # "DL"
-                    "library":                         struct["library"],          # "PyTorch"
-                    "kernel_ref":                      kernel_ref,
-                    "kernel_link":                     kernel_link,
-                    #"training_files":                  struct["training_files"],
-                    "username":                        username,
-                    "last_run_date":                   row.get("lastRunTime"),
-                    "votes":                           row.get("totalVotes"),
-                    "downloaded_path":                 str(final_path),
-                    "language":                        lang,
-                    "dl_keyword":                      "pytorch"
-                }
-                records.append(rec)
-                pt_count += 1
-                print(f"   [KEPT→PT] {kernel_ref}  (votes={row.get('totalVotes', 0)})")
+        pt_count = collect_tagged_kernels(slug, "pytorch", max_per_keyword,
+                                    comp_folder, comp_meta,
+                                    csv_writer, records, py_exporter)
 
         print(f"  → Kept {tf_count} TensorFlow‐DL and {pt_count} PyTorch‐DL notebooks for {slug}")
 
