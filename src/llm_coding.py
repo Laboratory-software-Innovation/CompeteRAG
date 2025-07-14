@@ -9,7 +9,7 @@ import openai
 
 from collections import defaultdict
 from config import OPENAI_MODEL,RESPONSES_MODEL,kaggle_api
-from selenium_helper import init_selenium_driver
+from helpers.selenium_helper import init_selenium_driver
 from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab, describe_schema, compact_profile_for_llm,select_hyperparameter_profile, compact_profiles
 from similarity import find_similar_ids
 from prompts import tools, tuner_tools, structure_and_label_competition_schema, extract_tools

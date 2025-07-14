@@ -12,7 +12,7 @@ import openai
 import pandas as pd
 from bs4 import BeautifulSoup
 
-from selenium_helper import init_selenium_driver
+from helpers.selenium_helper import init_selenium_driver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
