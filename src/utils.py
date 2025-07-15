@@ -45,42 +45,37 @@ def ensure_folder(path: Path):
     path.mkdir(parents=True, exist_ok=True)
     return path
 
-# Parse data tab of the competition
+
+
+def _after_heading(h: Tag, tags=("div", "p", "ul", "ol")):
+    return h.find_next(lambda t: t.name in tags and t.get_text(strip=True))
+
 def parse_competition_data_tab(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     info = {}
 
-    # 1) Dataset Description block
-    dd_h2 = soup.find("h2", string=re.compile(r"Dataset Description", re.IGNORECASE))
-    if dd_h2:
-        # the <div class="sc-lhcVAQ fqIFbB"> immediately follows
-        container = dd_h2.find_next("div", class_="sc-lhcVAQ")
-        if container:
-            info["dataset_description"] = container.get_text("\n", strip=True)
+    h = soup.find("h2", string=re.compile(r"Dataset Description", re.I))
+    blk = _after_heading(h) if h else None
+    if blk:
+        info["dataset_description"] = blk.get_text("\n", strip=True)
 
-    # 2) summary stats: Files / Size / Type / License
     for label in ("Files", "Size", "Type", "License"):
-        h2 = soup.find("h2", string=label)
-        if h2:
-            p = h2.find_next_sibling("p")
-            info[label.lower()] = p.get_text(strip=True) if p else ""
+        h = soup.find("h2", string=label)
+        blk = _after_heading(h, ("p", "div")) if h else None
+        if blk:
+            info[label.lower()] = blk.get_text(strip=True)
 
-    # 3) Data Explorer → list of filenames
-    de_h2 = soup.find("h2", string=re.compile(r"Data Explorer", re.IGNORECASE))
     files = []
-    if de_h2:
-        ul = de_h2.find_next("ul")
-        if ul:
-            for li in ul.find_all("li"):
-                # the filename lives in the <p> inside each <li>
-                p = li.find("p")
-                if p:
-                    files.append(p.get_text(strip=True))
+    h = soup.find("h2", string=re.compile(r"Data Explorer", re.I))
+    ul = _after_heading(h, ("ul",)) if h else None
+    if ul:
+        for p in ul.select("li p"):              
+            name = p.get_text(strip=True)
+            if name:
+                files.append(name)
 
-    return {
-        "dataset_metadata": info, 
-        "files_list": files
-    }
+    return {"dataset_metadata": info, "files_list": files}
+
 
 # Parse the overview page 
 def parse_competition_metadata(html: str) -> dict:
@@ -95,7 +90,6 @@ def parse_competition_metadata(html: str) -> dict:
             return ""
         parts = []
         for sib in hdr.next_siblings:
-            # stop at next heading
             if sib.name and re.match(r"h[1-3]", sib.name, re.I):
                 break
             if hasattr(sib, "get_text"):
@@ -103,20 +97,16 @@ def parse_competition_metadata(html: str) -> dict:
                 if text:
                     parts.append(text)
         text = " ".join(parts)
-        # collapse multiple spaces/newlines
         return re.sub(r"\s{2,}", " ", text).strip()
 
-    # 1) Title
     title_el = soup.find("h1")
     title = title_el.get_text(strip=True) if title_el else ""
 
-    # 2) Sections
     overview = grab_section("Overview") or grab_section("Description") or ""
     evaluation = grab_section("Evaluation")
     dataset_desc = grab_section("Dataset Description")
     submission_fmt = grab_section("Submission File")
 
-    # 3) Build the combined markdown
     md_parts = []
     if overview:
         md_parts.append("## Description\n\n" + overview)
@@ -143,7 +133,6 @@ def extract_tabular(file_path: str) -> Tuple[Optional[tempfile.TemporaryDirector
     extract the first .csv or .tsv inside a temp dir and return its path.
     Otherwise return file_path unchanged.
     """
-    # read magic bytes
     with open(file_path, 'rb') as f:
         magic = f.read(6)
 
@@ -180,7 +169,6 @@ def extract_tabular(file_path: str) -> Tuple[Optional[tempfile.TemporaryDirector
         return temp_dir, out_path
 
 
-    # not an archive: assume plain .csv or .tsv
     return None, file_path
 
 
@@ -190,28 +178,18 @@ def compact_profile_for_llm(
     max_features: int = 50,
     max_classes: int  = 50
 ) -> Dict[str,Any]:
-    """
-    Collapse long schema runs (as you already do) *and* collapse/
-    truncate target_summary so that classes like "123-F_1_2" are
-    grouped by feature (F_1) into ranges, with count.  Any leftover
-    non-matching classes fall back to top-K + "... more".
-    """
-    # 1) collapse schema exactly as before
     schema = profile["dataset_schema"]
     if len(schema) <= max_features:
         collapsed_schema = schema
     else:
         collapsed_schema = _collapse_schema_runs(schema)
 
-    # 2) collapse target_summary
     ts = profile["target_summary"]
     truncated_ts: Dict[str,Any] = {}
-    # regex to pull out "<row>-<feature>_<idx>"
     cls_pat = re.compile(r"^\d+-(F_\d+)_(\d+)$")
 
     for tgt_col, dist in ts.items():
         if isinstance(dist, dict) and all(isinstance(v, (int,float)) for v in dist.values()):
-            # group by feature prefix
             groups: Dict[str, List[int]] = {}
             others: Dict[str, float] = {}
             for cls, pct in dist.items():
@@ -223,15 +201,12 @@ def compact_profile_for_llm(
                     others[cls] = pct
 
             collapsed_classes: Dict[str, Any] = {}
-            # first collapse all the feature‐based groups
             for feat, idxs in groups.items():
                 lo, hi = min(idxs), max(idxs)
                 n = len(idxs)
                 collapsed_classes[f"{feat}_{lo}–{feat}_{hi} ({n} classes)"] = None
 
-            # then handle any “others” with top‐K + "... more"
             if others:
-                # sort descending
                 items = sorted(others.items(), key=lambda x: x[1], reverse=True)
                 for cls, pct in items[:max_classes]:
                     collapsed_classes[cls] = pct
@@ -242,7 +217,6 @@ def compact_profile_for_llm(
             truncated_ts[tgt_col] = collapsed_classes
 
         else:
-            # numeric summary, leave as is
             truncated_ts[tgt_col] = dist
 
     return {
@@ -251,7 +225,6 @@ def compact_profile_for_llm(
         "target_summary": truncated_ts
     }
 
-#Helper for large schemas
 def _collapse_schema_runs(schema: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
     pat = re.compile(r"^(.*?)(\d+)$")
     runs, current = [], [schema[0]]
@@ -298,18 +271,14 @@ def describe_schema(
     target_column: Union[str, List[str]]
 ) -> Dict[str, Any]:
 
-    # 0) normalize target list
     if isinstance(target_column, str):
         targets = [target_column]
     else:
         targets = list(target_column)
 
-    # 1) unpack if needed
     temp_ctx, csv_path = extract_tabular(source_path)
 
-    # 2) sniff delimiter
     try:
-        # sniff delimiter
         with open(csv_path, 'rb') as f:
             sample = f.read(2048)
         try:
@@ -321,7 +290,6 @@ def describe_schema(
         except csv.Error:
             sep = '\t' if csv_path.lower().endswith('.tsv') else ','
 
-        # load
         df = None
         for enc in ("utf-8","utf-8-sig","latin1","ISO-8859-1"):
             try:
@@ -336,11 +304,9 @@ def describe_schema(
         if df is None:
             raise RuntimeError(f"Failed to read {csv_path}")
 
-        # shape & missing
         n_rows, n_cols = df.shape
         missing = df.isnull().sum()
 
-        # features
         features: List[Dict[str, Any]] = []
         for col in df.columns:
             dtype = df[col].dtype
@@ -362,7 +328,6 @@ def describe_schema(
                 "is_target": col in targets
             })
 
-        # target summary
         target_summary: Dict[str, Any] = {}
         for tgt in targets:
             if tgt not in df.columns:
@@ -390,6 +355,12 @@ def describe_schema(
         if temp_ctx is not None:
             temp_ctx.cleanup()
 
+
+
+
+
+            
+
 def download_train_file(slug: str, path, files_list: List[str]) -> List[Path]:
     comp_folder = Path(path) / slug
     comp_folder.mkdir(parents=True, exist_ok=True)
@@ -406,6 +377,12 @@ def download_train_file(slug: str, path, files_list: List[str]) -> List[Path]:
             )
         local_paths.append(dest)
     return local_paths
+
+
+
+
+
+
 
 
 def select_hyperparameter_profile(comp_meta, bank):
@@ -445,6 +422,11 @@ def select_hyperparameter_profile(comp_meta, bank):
     return best
 
 
+
+
+
+
+
 def compact_profiles(profiles: dict, keep_targets=True):
     compacted = []
     for fname, prof in profiles.items():
@@ -457,6 +439,10 @@ def compact_profiles(profiles: dict, keep_targets=True):
             entry["targets"] = tcols
         compacted.append(entry)
     return compacted
+
+
+
+
 
 
 def profiles_dict_to_array(d):

@@ -81,7 +81,7 @@ ask_structured_schema = {
         "From the competition metadata, dataset metadata, and a raw Jupyter notebook text, "
         "extract exactly these fields as JSON (no extra keys, no prose, no markdown):\n"
         "  - competition_problem_type: one of ['classification','regression']\n"
-        "  - competition_problem_subtype: single, concise, lowercase‐and‐hyphenated phrase (e.g. “binary classification”, “multiclass classification”, “multi-label classification”, “time-series forecasting”, “continuous regression”, “ordinal regression”, etc. or any other that fits.)\n"
+        "  - competition_problem_subtype: single, concise, lowercase‐and‐hyphenated phrase (e.g. “binary-classification”, “multiclass-classification”, “multi-label-classification”, “time-series-forecasting”, “continuous-regression”, “ordinal-regression”, etc. or any other that fits.)\n"
         "  - competition_problem_description: dense, short, factual description of the problem, what needs to be found, no repetitive words (omit dataset‐meta here)\n"
         "  - dataset_metadata: plain‐English dataset_metadata in plain English as a single coherent paragraph, removing any non-human symbols (no bullets or symbols)\n"
         "  - competition_dataset_type: one of ['Tabular','Time-series','Text','Image','Audio','Video','Geospatial','Graph','Multimodal']\n"
@@ -180,7 +180,7 @@ structure_and_label_competition_schema = {
         "Given raw Kaggle competition metadata, dataset metadata and a list of files, "
         "return exactly the following fields as JSON:\n"
         "  - competition_problem_type (\"regression\" or \"classification\")\n"
-        "  - competition_problem_subtype (lower-case, single, concise, lowercase‐and‐hyphenated phrase (e.g. “binary classification”, “multiclass classification”, “multi-label classification”, “time-series forecasting”, “continuous regression”, “ordinal regression”, etc. or any other)\n"
+        "  - competition_problem_subtype: single, concise, lowercase‐and‐hyphenated phrase (e.g. “binary-classification”, “multiclass-classification”, “multi-label-classification”, “time-series-forecasting”, “continuous-regression”, “ordinal-regression”, etc. or any other that fits.)\n"
         "  - competition_problem_description (dense, non-repetitive description of the goal)\n"
         "  - evaluation_metrics metrics used to evaluate the solution\n"
         "  - dataset_metadata (plain-English paragraph rewrite of the original)\n"
@@ -203,51 +203,24 @@ structure_and_label_competition_schema = {
             },
             "competition_problem_subtype": {
                 "type": "string",
+                "enum": [
+                    "binary-classification",
+                    "multiclass-classification",
+                    "multi-label-classification",
+                    "time-series-forecasting",
+                    "continuous-regression",
+                    "quantile-regression",
+                    "multi-output-regression",
+                    "ordinal-regression",
+                    "missing-value-imputation"
+                ],
                 "description": "Pay attention to the problem evaluation and submission wording to pick the exact subtype. Be careful not to confuse:\n"
-                            "- multiclass vs. multi-label classification\n"
+                            "- multiclass vs. multi-label-classification\n"
                             "- continuous-regression vs. quantile-regression\n"
                             "- multi-output-regression vs. multi-label-classification\n"
                             "- ordinal-regression vs. multiclass-classification\n"
                             "- missing-value-imputation vs. regression\n"
-                            "- time-series-forecasting vs. non-temporal regression",
-                "oneOf": [
-                    {
-                    "const": "binary-classification",
-                    "description": "Predict one of two mutually exclusive classes for each example."
-                    },
-                    {
-                    "const": "multiclass-classification",
-                    "description": "Predict one class out of more than two mutually exclusive classes."
-                    },
-                    {
-                    "const": "multi-label-classification",
-                    "description": "Assign one or more non-exclusive labels to each example."
-                    },
-                    {
-                    "const": "time-series-forecasting",
-                    "description": "Predict future values given observations ordered in time."
-                    },
-                    {
-                    "const": "continuous-regression",
-                    "description": "Predict a single continuous numeric target."
-                    },
-                    {
-                    "const": "quantile-regression",
-                    "description": "Predict specified quantiles (e.g. 0.1, 0.5, 0.9) of a continuous distribution."
-                    },
-                    {
-                    "const": "multi-output-regression",
-                    "description": "Predict multiple continuous targets simultaneously."
-                    },
-                    {
-                    "const": "ordinal-regression",
-                    "description": "Predict discrete ordered categories (e.g. ratings)."
-                    },
-                    {
-                    "const": "missing-value-imputation",
-                    "description": "Predict and fill in missing entries in the dataset."
-                    }
-                ]
+                            "- time-series-forecasting vs. non-temporal regression"
             },
             "competition_problem_description": {
                 "type": "string",
@@ -376,7 +349,7 @@ tools = [
             "    le=LabelEncoder().fit(df[col].astype(str))\n"
             "    y_enc=le.transform(df[col].astype(str))\n"
             "    classes_=le.classes_\n"
-            "elif competition_problem_subtype in ['multi-label classification']:\n"
+            "elif competition_problem_subtype in ['multi-label-classification']:\n"
             "    from sklearn.preprocessing import MultiLabelBinarizer\n"
             "    mlb=MultiLabelBinarizer()\n"
             "    y_enc=mlb.fit_transform(df[target_columns])\n"
@@ -433,10 +406,10 @@ tools = [
                 "***For all hidden **Dense** layers (except the final output), use ReLU activation***\n"
                 "  - **Task subtype → head, loss, batch & metrics:**\n"
                 "    **(Note: activation applies only to the final/output layer)**\n"
-                "    * **binary classification:**\n"
+                "    * **binary-classification:**\n"
                 "        – activation=sigmoid, loss=binary_crossentropy\n"
                 "        – batch_size=64–256, metrics=['accuracy', tf.keras.metrics.AUC(), tfa.metrics.MatthewsCorrelationCoefficient()]\n"
-                "    * **multiclass classification (MAP@N):**\n"
+                "    * **multiclass-classification (MAP@N):**\n"
                 "        – activation=softmax, loss=sparse_categorical_crossentropy\n"
                 "        – batch_size=32–128\n"
                 "        – dynamically compute top_k as: \n"
@@ -444,7 +417,7 @@ tools = [
                 "        – top_k = min(num_classes, 5)\n"
                 "        – metrics = ['accuracy', tf.keras.metrics.SparseTopKCategoricalAccuracy(k=top_k, name=f'top_{top_k}_accuracy')] # use sparse version for integer labels  \n"
                 "        – at inference: take the top-`top_k` softmax probabilities for submission\n"
-                "    * **multilabel classification:**\n"
+                "    * **multi-label-classification,:**\n"
                 "        – activation=sigmoid, loss=binary_crossentropy\n"
                 "        – batch_size=64–256, metrics=[tf.keras.metrics.Precision(), tf.keras.metrics.Recall(), tfa.metrics.F1Score(num_classes=n_classes)]\n"
                 "    * **regression:**\n"
@@ -470,12 +443,12 @@ tools = [
             "   with open('results.json','w') as f: json.dump(results,f)\\n\"  \n"
             "# Infer id_col & target_columns from submission_example header\n\
             if any(not col.replace('.','').isdigit() for col in target_columns) or len(target_columns) > 1:\n\
-                competition_problem_subtype = \"multi-label classification\"\n\
+                competition_problem_subtype = \"multi-label-classification\"\n\
             \n\
             10. **Prediction & Submission**:\n\
             raw_preds = model.predict(X_test_proc)\n\
-            if competition_problem_subtype == \"multi-label classification\": final = (raw_preds > 0.5).astype(int)\n\
-            elif competition_problem_subtype in [\"multiclass\", \"multiclass classification\"]: idxs = raw_preds.argmax(axis=1); final = le.inverse_transform(idxs)\n\
+            if competition_problem_subtype == \"multi-label-classification\": final = (raw_preds > 0.5).astype(int)\n\
+            elif competition_problem_subtype in [\"multiclass\", \"multiclass-classification\"]: idxs = raw_preds.argmax(axis=1); final = le.inverse_transform(idxs)\n\
             elif competition_problem_subtype == \"binary-classification\":\n\
                 probs = raw_preds[:,1] if raw_preds.ndim==2 and raw_preds.shape[1]==2 else raw_preds.flatten()\n\
                 final = (probs > 0.5).astype(int)\n\
@@ -501,19 +474,18 @@ tools = [
                 },
                 "competition_problem_subtype": {
                     "type": "string",
-                    "description": "One of:\n"
-                        "  - binary-classification\n"
-                        "  - multiclass-classification\n"
-                        "  - multiclass classification\n"
-                        "  - multi-label classification\n"
-                        "  - continuous-regression\n"
-                        "  - quantile-regression\n"
-                        "  - multi-output regression\n"
-                        "  - time-series-forecasting\n"
-                        "  - multivariate-time-series-forecasting\n"
-                        "  - ordinal-regression\n"
-                        "  - missing-value-imputation\n"
-                        "Rely on this to choose splits, loss, activation, etc."
+                    "enum": [
+                        "binary-classification",
+                        "multiclass-classification",
+                        "multi-label-classification",
+                        "time-series-forecasting",
+                        "continuous-regression",
+                        "quantile-regression",
+                        "multi-output-regression",
+                        "ordinal-regression",
+                        "missing-value-imputation"
+                    ],
+                    "description": "Rely on this to choose splits, loss, activation, etc."
                 },
                 "dataset_metadata": {
                     "type": "string",
@@ -712,7 +684,17 @@ tuner_tools = [
                 },
                 "competition_problem_subtype": {
                     "type": "string",
-                    "description": "e.g. 'multiclass-classification' or 'continuous-regression'."
+                    "enum": [
+                        "binary-classification",
+                        "multiclass-classification",
+                        "multi-label-classification",
+                        "time-series-forecasting",
+                        "continuous-regression",
+                        "quantile-regression",
+                        "multi-output-regression",
+                        "ordinal-regression",
+                        "missing-value-imputation"
+                    ]
                 },
                 "model_block": {
                     "type": "string",

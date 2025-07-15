@@ -3,9 +3,7 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from webdriver_manager.chrome import ChromeDriverManager
 
-# If Chrome is in a nonstandard location, set this:
 CHROME_BINARY_PATH = None
-# e.g. "/usr/bin/google-chrome-stable"
 
 def init_selenium_driver() -> webdriver.Chrome:
     """
@@ -22,7 +20,6 @@ def init_selenium_driver() -> webdriver.Chrome:
     if CHROME_BINARY_PATH:
         chrome_options.binary_location = CHROME_BINARY_PATH
 
-    # this will download/install the matching chromedriver
     service = ChromeService(ChromeDriverManager().install())
 
     driver = webdriver.Chrome(service=service, options=chrome_options)
