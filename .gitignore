@@ -6,5 +6,4 @@ bc.py
 backup.py
 bcfull
 __pycache__
-
-
+.DS_Store
