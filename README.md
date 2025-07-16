@@ -1,83 +1,153 @@
-## Dependencies 
+# CompeteRAG
 
-This is a critical part, because you need to ensure that the libraries are of correct version so that venv has everything needed to run. Before running the API, please install the requirements from req.txt.
+Retrieval‑Augmented Generation pipeline that:
 
-```
-pip3 install -r req.txt
-```
+1. **Scrapes & structures** Kaggle competition pages, datasets and high‑quality TensorFlow / PyTorch notebooks.
+2. **Embeds & indexes** (DiffCSE sentence embeddings + weighted One Hot Encoding) that metadata in a weighted FAISS similarity index.
+3. **Generates** reproducible Keras or Keras‑Tuner baseline notebooks for *new* competitions with the help of OpenAI GPT models.
 
-The above requirements file should include all of the needed libraries. However, in case if you run in to issues with Kaggle, please run the its library installation with sudo.
+---
 
-```
-sudo pip3 install kaggle
-```
-
-## Selenium Helper
-
-The repository also contains two version of selenium helper functions, for Firefox and Edge browsers. I prefer using the Firefox one, however, you are free to switch it for your own too (e.g Chrome). Whichever one you pick, make sure you rename it to selenium_helper.py
-
-## ChatGPT - API Key
-Next, dont forget to add the API key to the directory
-1. Create a .env file
-2. Add this 
-```
-OPENAI_API_KEY = sk-...
-```
-
-## Kaggle Configuration
-Finally, don't forget to add your .kaggle configuration file. 
-
-For Ubuntu:
-```
-~/config/kaggle/.kaggle
-```
-
-The directory may vary depending on the system. 
-
-## Kaggle Competitions
-
-Before you start parsing the competitions, ensure that you have joined the competitions you are aiming to parse, otherwise you will run into the HTTP Error and the API will not be able to retrieve the test.csv dataset file. 
+## Repository layout
 
 ```
-requests.exceptions.HTTPError: 403 Client Error: Forbidden for url: https://www.kaggle.com/api/v1/competitions/data/download/slug/train.csv
+├──rag.py
+└──src/
+	├── collection.py      # Scrape competitions + notebooks → structured CSV
+	├── encoding.py        # Build & save FAISS index of competitions/notebooks
+	├── llm_coding.py      # Generate baseline solutions (Keras / Keras‑Tuner)
+	├── prompts.py         # JSON schemas for GPT function calls
+	├── similarity.py      # k‑NN search over FAISS index
+	├── tuner_bank.py      # Pre‑built hyper‑parameter search spaces
+	├── utils.py           # HTML scraping, file extraction, schema summarisation
+	├── config.py          # Paths, constants, Kaggle & OpenAI setup
+	├── rag.py             # **CLI entry‑point** (collect ▶ build ▶ code ▶ follow‑up)
+	├── requirements.txt   # All Python dependencies
+	└── helper/
+		├──selenium_helper  # Default selenium tool (uses Chrome)
+		├──selenium_firefox # Firefox version
+		└──selenium_helper  # Edge version
 ```
 
+---
 
-## Collecting and Encoded Matrix From the Notebooks Metadata
+## Quick start
 
-Before we can even compare to any notebooks, we first need to get at least a small dataset. Therefore, we need to collect competitions, their metadata, its datasets and solutions. First, it parses each competition's html page and strips it to text. Next, downloads the dataset (train.csv file), runs it through a summarization function and provides a dense summary of the dataset. It is then sent to an LLM to provide as a much more dense but still helpful summary. It then filters the notebooks section of every single competition by TensorFlow and PyTorch. The resulting notebooks are then sent through an LLM for more deep analysis, for example if the LLM understands that the notebook uses a Machine Learning algorithms, it skips that notebooks and moves on. 
+### 1 · Clone & install
 
-Finally as soon as we have all the notebooks metadata saved and structured we build an encoded matrix for the later comparison.
-
-```
-python3 rag.py cb
-```
-
-## Building the Code for a New Competition
-
-The final step to find the notebooks solutions that are as close as possible to our new competitions. Now, the API will find top-k solutions similar to the provided competitions, and append them to our next LLM prompt. 
-
-```
-python3 rag.py code <top-k> <simplified 0|1 only for keras tuner> <keras-tuner 0|1>
+```bash
+git clone https://github.com/<you>/kaggle‑rag.git
+cd kaggle‑rag
+python -m venv venv && source venv/bin/activate   
+venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-\<top-k> - top-k solution you would like to feed into the LLM for relying
+### 2 · Configure credentials
 
-\<simplified> - boolean, if 1 picks an exact hyperparameter blueprint for Keras Tuner, 0 - loads up all blueprints for the LLM to decide on its own
+| What               | Where / how                                                                                                                                           |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **OpenAI key**     | `.env` → `OPENAI_API_KEY=sk‑…`                                                                                                                        |
+| **Kaggle token**   | `~/.kaggle/kaggle.json` *or* set `KAGGLE_CONFIG_DIR`                                                                                                  |
+| **Browser driver** | Pick one of `helpers/selenium_helper_firefox.py` or `…_edge.py`, rename to `helpers/selenium_helper.py`, ensure the matching driver binary is on PATH |
 
-\<keras-tuner> - boolean, only works if the keras code already exists. If 1 takes the existing Keras code and turns it into its Keras Tuner version
+### 3 · Collect notebooks & build index
 
-## Results
+```bash
+python rag.py cb                 # all competitions in comps.py
+python rag.py cb <slug>          # start from a specific competition
+```
 
-The API should then generate two files: 
+Outputs:
 
-* .json description of a competition
-* .py model code (you may need to remove \<Code> and \</Code> tags from top and bottom respectively).
+- `notebooks_structured.csv`
+- `index_data/faiss_index.ip`
 
-## Follow-up Prompt
+### 4 · Generate code for a new competition
 
-If, in any case the initial prompt generated a faulty code, and you receive an error message, copy the error message and insert it below the code segment into a new \<Error>...\</Error> block segment
+IMPORTANT: Before generating the code, ensure you have joined the competition you would like to generate code for.
 
-# P.S.
+```bash
+# Outline
+python3 rag.py code <keras-tuner 0|1> <slug> <top-k: 1-9> 
 
-The RAG does seem to do most of the tasks with only one attempt and sometimes the score is 10% - 15% better. However, the bigger problem is to ensure it does consistently and follow the correct TF Keras code.
+# Standard Keras 
+
+#(top-1 similar notebook) starting from the very beginning
+python3 rag.py code 0 
+
+#(top-5 similar notebook) starting from the very beginning
+python3 rag.py code 0 5
+
+#(top‑k similar notebooks = 3) starting(and including) from a certain competition
+python rag.py code 0 <slug> 3
+
+#Similar applies to Keras Tuner. However the top-k number doesn't apply in this case
+python rag.py code 1 
+
+# Keras‑Tuner version built from the generated Keras notebook
+python rag.py code 1 <slug>
+```
+
+Creates under `test/<slug>/`:
+
+- `<slug>_desc.json` – compact competition description
+- `<slug>_solution.py`  or  `<slug>_kt_solution.py`
+
+### 5 Running the model
+
+The generated python file will be placed in test/`<slug>`, the code itself will appear in `<Code>...</Code>` make sure to remove them before running it. Also the make sure you specify the file paths manually since the model simply input the file names and due to how RAG loads data files, it might have different extension for those files.
+
+IMPORTANT: Before training, always download the files from Kaggle itself, do not rely on the files downloaded by the RAG for code generation, those may be unsupported due to how RAG extracts and decodes them. 
+
+### 6 · Iterate with follow‑up prompts
+
+If the first notebook fails, wrap the traceback inside `<Error> … </Error>` and the code inside `<Code> ... </Code>` run:
+
+```bash
+python rag.py followup 0 <slug>   # 0 = Keras, 1 = K‑T
+```
+
+### 7 · Iterate with the original prompt
+
+Sometime, the followup may result in the same error over and over again, simply try running the original prompt. (Usually may be required when the dimensions are wrong)
+
+```bash
+python rag.py code 1|0 <slug>
+```
+---
+
+## Module overview
+
+| File            | Purpose                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------- |
+| `collection.py` | HTML + Kaggle API scraping, notebook filtering, LLM‑based structuring                                   |
+| `encoding.py`   | Sentence‑Transformer + weighted OHE → FAISS index build & persist                                       |
+| `similarity.py` | Query helper that returns top‑k similar kernel refs for a given competition JSON                        |
+| `llm_coding.py` | High‑level orchestration → builds data profiles, selects examples, calls GPT tools, post‑processes code |
+| `prompts.py`    | All JSON schemas fed to GPT (labeling, structuring, code generation)                                    |
+| `tuner_bank.py` | Library of hyper‑parameter spaces for Keras‑Tuner                                                       |
+| `utils.py`      | Selenium helpers, HTML parsing, dataset archive extraction, schema compaction                           |
+| `config.py`     | Constants (paths, weights, max features/classes), env loading, authenticated KaggleApi instance         |
+| `rag.py`        | Command‑line interface and glue code                                                                    |
+
+---
+
+## Troubleshooting
+
+- **HTTP 403 from Kaggle** → ensure you have *joined* the competition and your token is valid.
+- **Selenium **`` → browser and driver versions mismatch.
+- ``** fails** → run `python rag.py cb` or `rag.py b` to (re)build the index.
+- **GPT/tool call timeouts** → reduce `top_k`, free GPU, or retry.
+
+---
+
+## Contributing & license
+
+
+
+---
+
+
+
+ 
