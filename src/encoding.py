@@ -88,5 +88,5 @@ def build_index(
     print(f"[INFO] Saved model name → {INDEX_DIR/'text_encoder_model_name.txt'}")
     print(f"[INFO] Saved OHE → {INDEX_DIR/'onehot_encoder.pkl'}")
     print(f"[INFO] Saved embeddings → {INDEX_DIR/'combined_embeddings.npy'}")
-    print(f"[defINFO] Saved FAISS index → {INDEX_DIR/'faiss_index.ip'}")
+    print(f"[INFO] Saved FAISS index → {INDEX_DIR/'faiss_index.ip'}")
     print(f"[INFO] Saved row IDs → {INDEX_DIR/'row_ids.pkl'}")
