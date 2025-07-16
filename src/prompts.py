@@ -113,7 +113,7 @@ ask_structured_schema = {
                     "ordinal-regression",
                     "missing-value-imputation"
                 ],
-                "description": "Single lowercase hyphenated phrase describing the subtype."
+                "description": "Pick exactly one."
             },
             "competition_problem_description": {
                 "type": "string",
@@ -203,19 +203,46 @@ structure_and_label_competition_schema = {
             },
             "competition_problem_subtype": {
                 "type": "string",
-                "enum": [
-                    "binary-classification",
-                    "multiclass-classification",
-                    "multi-label-classification",
-                    "time-series-forecasting",
-                    "continuous-regression",
-                    "quantile-regression",
-                    "multi-output-regression",
-                    "ordinal-regression",
-                    "missing-value-imputation"
+                "oneOf": [
+                    {
+                    "const": "binary-classification",
+                    "description": "Predict one of two mutually exclusive classes for each example."
+                    },
+                    {
+                    "const": "multiclass-classification",
+                    "description": "Predict one class out of more than two mutually exclusive classes."
+                    },
+                    {
+                    "const": "multi-label-classification",
+                    "description": "Assign one or more non-exclusive labels to each example."
+                    },
+                    {
+                    "const": "time-series-forecasting",
+                    "description": "Predict future values given observations ordered in time."
+                    },
+                    {
+                    "const": "continuous-regression",
+                    "description": "Predict a single continuous numeric target."
+                    },
+                    {
+                    "const": "quantile-regression",
+                    "description": "Predict specified quantiles (e.g. 0.1, 0.5, 0.9) of a continuous distribution."
+                    },
+                    {
+                    "const": "multi-output-regression",
+                    "description": "Predict multiple continuous targets simultaneously."
+                    },
+                    {
+                    "const": "ordinal-regression",
+                    "description": "Predict discrete ordered categories (e.g. ratings)."
+                    },
+                    {
+                    "const": "missing-value-imputation",
+                    "description": "Predict and fill in missing entries in the dataset."
+                    }
                 ],
                 "description": "Pay attention to the problem evaluation and submission wording to pick the exact subtype. Be careful not to confuse:\n"
-                            "- multiclass vs. multi-label-classification\n"
+                            "- multiclass-classification vs. multi-label-classification\n"
                             "- continuous-regression vs. quantile-regression\n"
                             "- multi-output-regression vs. multi-label-classification\n"
                             "- ordinal-regression vs. multiclass-classification\n"
@@ -417,7 +444,7 @@ tools = [
                 "        – top_k = min(num_classes, 5)\n"
                 "        – metrics = ['accuracy', tf.keras.metrics.SparseTopKCategoricalAccuracy(k=top_k, name=f'top_{top_k}_accuracy')] # use sparse version for integer labels  \n"
                 "        – at inference: take the top-`top_k` softmax probabilities for submission\n"
-                "    * **multi-label-classification,:**\n"
+                "    * **multi-label-classification:**\n"
                 "        – activation=sigmoid, loss=binary_crossentropy\n"
                 "        – batch_size=64–256, metrics=[tf.keras.metrics.Precision(), tf.keras.metrics.Recall(), tfa.metrics.F1Score(num_classes=n_classes)]\n"
                 "    * **regression:**\n"
