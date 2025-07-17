@@ -1,10 +1,13 @@
 # CompeteRAG
 
+#### IMPORTANT: Please make sure to follow every point in the README.
+
 Retrieval‑Augmented Generation pipeline that:
 
 1. **Scrapes & structures** Kaggle competition pages, datasets and high‑quality TensorFlow / PyTorch notebooks.
-2. **Embeds & indexes** (DiffCSE sentence embeddings + weighted One Hot Encoding) that metadata in a weighted FAISS similarity index.
+2. **Embeds & indexes** metadata(DiffCSE sentence embeddings + weighted One Hot Encoding) in a weighted FAISS similarity index.
 3. **Generates** reproducible Keras or Keras‑Tuner baseline notebooks for *new* competitions with the help of OpenAI GPT models.
+
 
 ---
 
@@ -36,8 +39,8 @@ Retrieval‑Augmented Generation pipeline that:
 ### 1 · Clone & install
 
 ```bash
-git clone https://github.com/<you>/kaggle‑rag.git
-cd kaggle‑rag
+git clone https://github.com/IllyaGY/REU.git
+cd REU
 python -m venv venv && source venv/bin/activate   
 venv\Scripts\activate
 pip install -r requirements.txt
@@ -65,7 +68,7 @@ Outputs:
 
 ### 4 · Generate code for a new competition
 
-IMPORTANT: Before generating the code, ensure you have joined the competition you would like to generate code for.
+#### IMPORTANT: Before generating the code, ensure you have joined the competition you would like to generate code for.
 
 ```bash
 # Outline
@@ -98,7 +101,7 @@ Creates under `test/<slug>/`:
 
 The generated python file will be placed in test/`<slug>`, the code itself will appear in `<Code>...</Code>` make sure to remove them before running it. Also the make sure you specify the file paths manually since the model simply input the file names and due to how RAG loads data files, it might have different extension for those files.
 
-IMPORTANT: Before training, always download the files from Kaggle itself, do not rely on the files downloaded by the RAG for code generation, those may be unsupported due to how RAG extracts and decodes them. 
+#### IMPORTANT: Before training, always download the files from Kaggle itself, do not rely on the files downloaded by the RAG for code generation, those may be unsupported due to how RAG extracts and decodes them. 
 
 ### 6 · Iterate with follow‑up prompts
 
@@ -138,7 +141,7 @@ python rag.py code 1|0 <slug>
 - **HTTP 403 from Kaggle** → ensure you have *joined* the competition and your token is valid.
 - **Selenium **`` → browser and driver versions mismatch.
 - ``** fails** → run `python rag.py cb` or `rag.py b` to (re)build the index.
-- **GPT/tool call timeouts** → reduce `top_k`, free GPU, or retry.
+- **GPT/tool call timeouts** → reduce `top_k`, or retry.
 
 ---
 
