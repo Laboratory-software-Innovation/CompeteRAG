@@ -657,7 +657,7 @@ tuner_tools = [
             "tuner = kt.BayesianOptimization(\n"  
             "    MyHyperModel(),\n"  
             "    objective='val_loss',\n"  
-            "    max_trials=chosen['params'].get('max_trials',10),\n"  
+            "    max_trials=10,\n"  
             "    executions_per_trial=1,\n"  
             "    seed=42,\n"  
             "    overwrite=True,\n"  

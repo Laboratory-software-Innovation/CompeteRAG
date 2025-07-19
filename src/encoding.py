@@ -21,7 +21,7 @@ from sentence_transformers import SentenceTransformer
 
 from config import INDEX_DIR
 
-# Build TF-IDF indices (notebook descriptions & competition descriptions)
+# Build FAISS index database(notebook descriptions & competition descriptions)
 def build_index(
     df_structured: pd.DataFrame,
     model_name: str = "voidism/diffcse-roberta-base-sts",

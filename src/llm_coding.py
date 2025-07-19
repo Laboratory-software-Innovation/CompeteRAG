@@ -358,6 +358,11 @@ def merge_with_tuner(original_code: str, tuner_snippet: str) -> str:
     )
     return resp.choices[0].message.content
 
+
+
+
+
+
 def generate_tuner_schema_impl(tool_inputs: dict) -> str:
     #Extract the original model block
     extract_resp = openai.chat.completions.create(
