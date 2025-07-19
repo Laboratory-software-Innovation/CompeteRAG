@@ -122,25 +122,23 @@ python rag.py code 1|0 <slug>
 
 ## Execution flow (high‑level)
 
-1. **rag.py (CLI)** — parses sub‑command
-   - `cb` → `collection.collect_and_structured(max_notebooks = 5, start = None)` → `encoding.build_index()`
-   - `b`  → `encoding.build_index()` (re‑index only)
-   - `code` → `llm_coding.solve_competition_keras()` (uses `similarity.find_similar_ids()`) - Keras
-   - `code` → `llm_coding.solve_competition_tuner()` - Keras Tuner
-   - `followup` → `llm_coding.followup_prompt()`
-1. **collection.py**
-   - `collect_and_structured(max_notebooks = 5, start = None)` loops over slug lis
-2. **encoding.py**
-   - `build_index()` → DiffCSE embeds + OHE
-     - `faiss.IndexFlatIP` saved to disk
-4. **similarity.py**
-   - `index.search(query_vec, k)` returns top‑k ids + scores
-2. **llm\_coding.py**
-   - `solve_competition_keras(slug, k, tuner_flag)`
-     - calls `similarity.find_similar_ids()`
-     - assembles prompt via `prompts.json_schema`
+1. **rag.py (CLI)** — parses sub‑command\
+   • `cb`   → `collection.collect_and_structured()` → `encoding.build_index()`\
+   • `b`    → `encoding.build_index()` (re‑index only)\
+   • `code` → `llm_coding.solve_competition_keras()` (*Keras*) or `llm_coding.solve_competition_tuner()` (*K‑T*)\
+   • `followup` → `llm_coding.followup_prompt()`
+
+2. **collection.py** — `collect_and_structured()` loops over `train` list and downloads notebooks
+
+3. **encoding.py** — `build_index()` → DiffCSE embeddings + weighted OHE → saves `faiss.IndexFlatIP`
+
+4. **similarity.py** — `find_similar_ids()` queries FAISS index
+
+5. **llm\_coding.py** — orchestrates prompts, builds code via GPT, handles follow‑ups
+	- `solve_competition_keras()`
+     - calls `similarity.find_similar_ids()` to find top-k similar examples
+     - assembles prompt via `prompts.py` json schema
      - streams GPT and Deepseek-R1 function‑calls
-   - `followup_prompt(slug, kt = 0|1)` same pipeline with error context
 
 
 ## Module overview
