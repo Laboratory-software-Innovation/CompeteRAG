@@ -448,7 +448,6 @@ def followup_prompt(
     
     text = path.read_text(encoding="utf-8")
 
-    # extract between markers
     code_match = re.search(r"<Code>(.*?)</Code>", text, re.S)
     err_match  = re.search(r"<Error>(.*?)</Error>", text, re.S)
     if not code_match or not err_match:
@@ -456,6 +455,18 @@ def followup_prompt(
 
     code_block = code_match.group(1).strip()
     error_msg  = err_match.group(1).strip()
+
+    base          = Path(f"test/{slug}")
+    comp_struct = json.loads((base / f"{slug}_desc.json").read_text())
+
+    extra = (
+        f"<CompetitionProblemDescription>\n{comp_struct['competition_problem_description']}\n</CompetitionProblemDescription>\n"
+        f"<CompetitionProblemSubtype>\n{comp_struct['competition_problem_subtype']}\n</CompetitionProblemSubtype>\n"
+        f"<DatasetMetadata>\n{json.dumps(comp_struct['dataset_metadata'], indent=2)}\n</DatasetMetadata>\n"
+        f"<DataProfiles>\n{json.dumps(comp_struct['data_profiles'], indent=2)}\n</DataProfiles>\n"
+        f"<FilesPreprocessingInstructions>\n{comp_struct['files_preprocessing_instructions']}\n</FilesPreprocessingInstructions>\n"
+        f"<FilesList>\n{json.dumps(comp_struct['files_list'], indent=2)}\n</FilesList>\n"
+    )
 
     system = {
         "role": "system",
@@ -477,9 +488,11 @@ def followup_prompt(
             "<Error>\n"
             f"{error_msg}\n"
             "</Error>\n\n"
+            f"{extra}"
             "Return only the corrected Python code, wrapped in <Code>...</Code>."
         )
     }
+
 
     resp = openai.chat.completions.create(
         model=OPENAI_MODEL,
@@ -487,11 +500,8 @@ def followup_prompt(
         messages=[system, user]
     )
     reply = resp.choices[0].message.content.strip()
-    # strip markers
+
     if reply.startswith("<Code>") and reply.endswith("</Code>"):
         return reply[len("<Code>"):-len("</Code>")].strip()
     return reply
-
-
-
 
