@@ -473,7 +473,8 @@ def followup_prompt(
         "content": (
             "You are a world-class deep learning engineer with an expertice in debugging the code.  "
             "Turn on the verbose and save the training and validtion accuracy and log of the last epoch in a json file (results.json). It will have the following keys: {training_accuracy, training_loss,validation_accuracy and validation_loss}  "
-            "Now you will be given a deep learning <Code> along with the <Error> log. Think step by step and generate a fix for this code, but only fix the issue mentioned, do not modify anything else. Rewrite the full code from the begining, fixing the bug. In you code, include the code that records the time of how long the model trains. Write the code in this format"
+            "Now you will be given a deep learning <Code> along with the <Error> log, and read‑only context wrapped in <CompetitionProblemDescription>, <CompetitionProblemSubtype>, <DatasetMetadata>, <DataProfiles>, <FilesPreprocessingInstructions>, <SubmissionExample>, and <FilesList>; use these sections as reference when diagnosing and fixing the bug, but do not modify or return them. "
+            "Think step by step and generate a fix for this code, but only fix the issue mentioned, do not modify anything else. Rewrite the full code from the begining, fixing the bug. In you code, include the code that records the time of how long the model trains. Write the code in this format "
             "<Code>"
             "Your code goes here"
             "</Code>"    
