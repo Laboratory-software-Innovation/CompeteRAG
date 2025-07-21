@@ -5,7 +5,7 @@
 Retrieval‑Augmented Generation pipeline that:
 
 1. **Scrapes & structures** Kaggle competition pages, datasets and high‑quality TensorFlow / PyTorch notebooks.
-2. **Embeds & indexes** metadata(DiffCSE sentence embeddings + weighted One Hot Encoding) in a weighted FAISS similarity index.
+2. **Embeds & indexes** metadata(RoBERTa + DiffCSE sentence embeddings + weighted One Hot Encoding) in a weighted FAISS similarity index.
 3. **Generates** reproducible Keras or Keras‑Tuner baseline notebooks for *new* competitions with the help of OpenAI GPT models.
 
 
@@ -138,7 +138,7 @@ python rag.py code 1|0 <slug>
 	- `solve_competition_keras()`
      - calls `similarity.find_similar_ids()` to find top-k similar examples
      - assembles prompt via `prompts.py` json schema
-     - streams GPT and Deepseek-R1 function‑calls
+     - streams GPT-o4-mini and Deepseek-R1 function‑calls
 
 
 ## Module overview
@@ -166,9 +166,9 @@ python rag.py code 1|0 <slug>
 
 ---
 
-## Contributing & license
+## Acknowledgements
 
-
+This work was supported by the NSF grants #CNS-2349663 and #OAC-2528533. This work used Indiana JetStream2 GPU at Indiana University through allocation NAIRR250048 from the Advanced Cyberinfrastructure Coordination Ecosystem: Services & Support (ACCESS) program, which is supported by the NSF grants #2138259, #2138286, #2138307, #2137603, and #2138296. Any opinions, findings, and conclusions or recommendations expressed in this work are those of the author(s) and do not necessarily reflect the views of the NSF.
 
 ---
 
