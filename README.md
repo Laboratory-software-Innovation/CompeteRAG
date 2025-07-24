@@ -101,7 +101,29 @@ Creates under `test/<slug>/`:
 
 The generated python file will be placed in test/`<slug>`, the code itself will appear in `<Code>...</Code>` make sure to remove them before running it. Also the make sure you specify the file paths manually since the model simply input the file names and due to how RAG loads data files, it might have different extension for those files.
 
-#### IMPORTANT: Before training, always download the files from Kaggle itself, do not rely on the files downloaded by the RAG for code generation, those may be unsupported due to how RAG extracts and decodes them. 
+#### IMPORTANT: 
+
+##### 1) Before training, always download the files from Kaggle itself, do not rely on the files downloaded by the RAG for code generation, those may be unsupported due to how RAG extracts and decodes them. 
+##### 2) Verify that the metrics used are correct (Accuracy - Classification, RMSE - Regression). Sometimes, the metrics used by the LLM are incorrect.
+###### For example, due to how the prompt is structured, the model may generate a log1p RMSE and MAE scores. We used these metrics instead:
+
+```python
+def mse_real(y_true_log, y_pred_log):
+	y_true = tf.math.expm1(y_true_log)
+	y_pred = tf.math.expm1(y_pred_log)
+	return tf.reduce_mean(tf.square(y_true - y_pred))
+mse_real.__name__ = 'mse_real'
+
+  
+def rmse_real(y_true_log, y_pred_log):
+	y_true = tf.math.expm1(y_true_log)
+	y_pred = tf.math.expm1(y_pred_log)
+	return tf.sqrt(tf.reduce_mean(tf.square(y_true - y_pred)))
+rmse_real.__name__ = 'rmse_real'
+```
+
+
+
 
 ### 6 · Iterate with follow‑up prompts
 
@@ -111,7 +133,7 @@ If the first notebook fails, wrap the traceback inside `<Error> … </Error>` an
 python rag.py followup 0 <slug>   # 0 = Keras, 1 = K‑T
 ```
 
-### 7 · Iterate with the original prompt
+### 7 · Re-generate with the original prompt
 
 Sometime, the followup may result in the same error over and over again, simply try running the original prompt. (Usually may be required when the dimensions are wrong)
 
