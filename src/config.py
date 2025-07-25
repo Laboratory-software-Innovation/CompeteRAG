@@ -29,7 +29,7 @@ kaggle_api.authenticate()
 
 #  OpenAI settings
 load_dotenv() 
-OPENAI_MODEL = "gpt-4o-mini" # same model just different id names used due to the API specifics
+OPENAI_MODEL = "o4-mini" 
 RESPONSES_MODEL = "o4-mini"
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
