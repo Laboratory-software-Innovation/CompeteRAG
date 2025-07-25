@@ -60,7 +60,6 @@ def structure_and_label_competition(comp_meta: dict) -> dict:
     #Parsing the files seemed to provide more useful file, due to Kaggle API output limitations and LLM prompt limit
     response = openai.chat.completions.create(
         model=OPENAI_MODEL,
-        temperature=0.0,
         messages=[system_msg, user_msg],
         functions=[structure_and_label_competition_schema],
         function_call={"name": "structure_and_label_competition_schema"}
@@ -158,7 +157,6 @@ def generate_keras_schema_impl(tool_inputs: dict) -> str:
 
     chat = openai.chat.completions.create(
         model          = OPENAI_MODEL,
-        temperature    = 0.0,
         messages       = [
             {"role": "system",
              "content": "Generate only the notebook code wrapped in <Code>…</Code>."},
@@ -353,7 +351,6 @@ def merge_with_tuner(original_code: str, tuner_snippet: str) -> str:
     }
     resp = openai.chat.completions.create(
         model=OPENAI_MODEL,
-        temperature=0,
         messages=[system_msg, user_msg]
     )
     return resp.choices[0].message.content
@@ -367,7 +364,6 @@ def generate_tuner_schema_impl(tool_inputs: dict) -> str:
     #Extract the original model block
     extract_resp = openai.chat.completions.create(
         model=OPENAI_MODEL,
-        temperature=0,
         messages=[{
             "role": "user",
             "content": json.dumps({"original_code": tool_inputs["existing_solution_code"]})
@@ -388,7 +384,6 @@ def generate_tuner_schema_impl(tool_inputs: dict) -> str:
     #Generate tuner snippet from that block
     tuner_resp = openai.chat.completions.create(
         model=OPENAI_MODEL,
-        temperature=0,
         messages=[{
             "role": "user",
             "content": json.dumps({
@@ -497,7 +492,6 @@ def followup_prompt(
 
     resp = openai.chat.completions.create(
         model=OPENAI_MODEL,
-        temperature=0.0,
         messages=[system, user]
     )
     reply = resp.choices[0].message.content.strip()
