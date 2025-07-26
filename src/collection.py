@@ -49,7 +49,6 @@ def label_competition(comp_meta: dict) -> dict:
     # call the model with our function schema
     response = openai.chat.completions.create(
         model=OPENAI_MODEL,
-        temperature=0.0,
         messages=[system_msg, user_msg],
         functions=[label_competition_schema],
         function_call={"name": "label_competition_schema"}  # force this function
@@ -123,7 +122,6 @@ def ask_llm_for_structured_output(comp_meta: str, notebook_text: str) -> dict:
 
     response = openai.chat.completions.create(
         model=OPENAI_MODEL,
-        temperature=0.0,
         messages= [
             {"role":"system", **{"content": system_prompt}},
             {"role": "user",    "content": user_payload},
