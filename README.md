@@ -9,6 +9,13 @@ Retrieval‑Augmented Generation pipeline that:
 3. **Generates** reproducible Keras or Keras‑Tuner baseline notebooks for *new* competitions with the help of OpenAI GPT models.
 
 
+## Configuration used
+
+Python 3.12.3
+
+Ubuntu 22.04
+
+
 ---
 
 ## Repository layout

@@ -1,25 +1,27 @@
-import os
 from selenium import webdriver
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from webdriver_manager.firefox import GeckoDriverManager
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from webdriver_manager.chrome import ChromeDriverManager
 
+CHROME_BINARY_PATH = None
 
-FIREFOX_BINARY_PATH = None
+def init_selenium_driver() -> webdriver.Chrome:
+    """
+    Return a headless Chrome WebDriver instance.
+    If CHROME_BINARY_PATH is set, points ChromeOptions.binary_location there.
+    Otherwise relies on webdriver-manager to download chromedriver.
+    """
+    chrome_options = ChromeOptions()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--window-size=1920,1080")
 
+    if CHROME_BINARY_PATH:
+        chrome_options.binary_location = CHROME_BINARY_PATH
 
-def init_selenium_driver() -> webdriver.Firefox:
-    firefox_options = FirefoxOptions()
-    firefox_options.add_argument("--headless")
-    firefox_options.add_argument("--disable-gpu")
-    firefox_options.add_argument("--no-sandbox")
-    firefox_options.add_argument("--disable-dev-shm-usage")
-    firefox_options.add_argument("--window-size=1920,1080")
+    service = ChromeService(ChromeDriverManager().install())
 
-    if FIREFOX_BINARY_PATH:
-        firefox_options.binary_location = FIREFOX_BINARY_PATH
-
-    service = FirefoxService(GeckoDriverManager().install())
-    driver = webdriver.Firefox(service=service, options=firefox_options)
+    driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
 
