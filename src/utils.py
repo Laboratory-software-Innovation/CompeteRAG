@@ -10,14 +10,14 @@ import gzip
 import openai
 
 import pandas as pd
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup,Tag
 
-from helpers.selenium_helper import init_selenium_driver
+from src.helpers.selenium_helper import init_selenium_driver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 
-from config import kaggle_api
+from src.config import kaggle_api
 
 from typing import Any, List, Tuple, Dict, Union,Optional
 

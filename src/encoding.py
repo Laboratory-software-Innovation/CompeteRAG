@@ -9,7 +9,7 @@ from collections import OrderedDict
 from sentence_transformers import SentenceTransformer
 from sklearn.preprocessing import OneHotEncoder
 
-from config import INDEX_DIR
+from src.config import INDEX_DIR
 
 import pickle
 from pathlib import Path
@@ -19,7 +19,7 @@ import numpy as np
 from sklearn.preprocessing import OneHotEncoder
 from sentence_transformers import SentenceTransformer
 
-from config import INDEX_DIR
+from src.config import INDEX_DIR
 
 # Build FAISS index database(notebook descriptions & competition descriptions)
 def build_index(

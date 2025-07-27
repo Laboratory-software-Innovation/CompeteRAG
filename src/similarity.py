@@ -8,7 +8,7 @@ import pandas as pd
 from sentence_transformers import SentenceTransformer
 from typing import List, Tuple
 
-from config import INDEX_DIR
+from src.config import INDEX_DIR
 
 
 def find_similar_ids(

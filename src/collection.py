@@ -16,11 +16,11 @@ from nbformat import read as nb_read
 from nbconvert import PythonExporter
 
 import openai
-from helpers.selenium_helper import init_selenium_driver
-from config import OPENAI_MODEL,EXCEL_FILE
-from utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab,describe_schema, extract_tabular, download_train_file
-from prompts import label_competition_schema, ask_structured_schema
-from comps import train
+from src.helpers.selenium_helper import init_selenium_driver
+from src.config import OPENAI_MODEL,EXCEL_FILE
+from src.utils import fetch_competition_page_html, parse_competition_metadata, parse_competition_data_tab,describe_schema, extract_tabular, download_train_file
+from src.prompts import label_competition_schema, ask_structured_schema
+from src.comps import train
 
 #Get the target column
 def label_competition(comp_meta: dict) -> dict:
@@ -193,6 +193,7 @@ def collect_tagged_kernels(
              "-v"],
             capture_output=True, text=True, check=True
         )
+        
         df = pd.read_csv(pd.io.common.StringIO(proc.stdout))
     except Exception as e:
         print(f"[WARN] {tag} list failed for {slug}: {e}")
