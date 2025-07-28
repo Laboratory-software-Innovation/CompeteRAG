@@ -18,6 +18,7 @@ Ubuntu 22.04
 Chrome
 
 GPT o4-mini and Deepseek-R1
+
 ---
 
 ## Repository layout
@@ -36,7 +37,7 @@ GPT o4-mini and Deepseek-R1
 	├── rag.py             # **CLI entry‑point** (collect ▶ build ▶ code ▶ follow‑up)
 	├── requirements.txt   # All Python dependencies
 	└── helper/
-		├──selenium_helper  # Default selenium tool (uses Chrome)
+		├──selenium_helper  # Selenium tool (uses Chrome)
 ```
 
 ---
