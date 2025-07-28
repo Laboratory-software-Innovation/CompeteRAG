@@ -15,7 +15,9 @@ Python 3.12.3
 
 Ubuntu 22.04
 
+Chrome
 
+GPT o4-mini and Deepseek-R1
 ---
 
 ## Repository layout
@@ -35,8 +37,6 @@ Ubuntu 22.04
 	├── requirements.txt   # All Python dependencies
 	└── helper/
 		├──selenium_helper  # Default selenium tool (uses Chrome)
-		├──selenium_firefox # Firefox version
-		└──selenium_helper  # Edge version
 ```
 
 ---
@@ -61,7 +61,6 @@ Ensure Kaggle API is installed with sudo and the kaggle.json file has the permis
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **OpenAI key**     | `.env` → `OPENAI_API_KEY=sk‑…`                                                                                                                        |
 | **Kaggle token**   | `~/.kaggle/kaggle.json` *or* set `KAGGLE_CONFIG_DIR`                                                                                                  |
-| **Browser driver** | Pick one of `helpers/selenium_helper_firefox.py` or `…_edge.py`, rename to `helpers/selenium_helper.py`, ensure the matching driver binary is on PATH |
 
 ### 3 · Collect notebooks & build index
 
