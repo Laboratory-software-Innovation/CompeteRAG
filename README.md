@@ -48,8 +48,6 @@ Ubuntu 22.04
 ```bash
 git clone https://github.com/IllyaGY/REU.git
 cd REU
-python -m venv venv && source venv/bin/activate   
-venv\Scripts\activate
 pip install -r requirements.txt
 sudo pip install kaggle
 ```
