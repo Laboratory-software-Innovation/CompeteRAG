@@ -50,8 +50,9 @@ git clone https://github.com/IllyaGY/REU.git
 cd REU
 pip install -r requirements.txt
 sudo pip install kaggle
+chmod 600 /home/<user>/.config/kaggle/kaggle.json
 ```
-Ensure Kaggle API is installed with sudo
+Ensure Kaggle API is installed with sudo and the kaggle.json file has the permission set to 600
 
 
 ### 2 · Configure credentials
