@@ -61,7 +61,7 @@ Ensure Kaggle API is installed with sudo and the kaggle.json file has the permis
 | What               | Where / how                                                                                                                                           |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **OpenAI key**     | `.env` → `OPENAI_API_KEY=sk‑…`                                                                                                                        |
-| **Kaggle token**   | `~/.kaggle/kaggle.json` *or* set `KAGGLE_CONFIG_DIR`                                                                                                  |
+| **Kaggle token**   | `~/.config/kaggle/kaggle.json` *or* set `KAGGLE_CONFIG_DIR`                                                                                                  |
 
 ### 3 · Collect notebooks & build index
 
