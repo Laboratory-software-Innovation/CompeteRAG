@@ -1,0 +1,11 @@
+{
+    "final_training_loss": 331785728.0,
+    "final_validation_loss": 290831616.0,
+    "sentiment_train_rmse": 0.5431404709815979,
+    "sentiment_val_rmse": 0.5587336421012878,
+    "when_train_rmse": 0.422367662191391,
+    "when_val_rmse": 0.3046540319919586,
+    "kind_train_rmse": 0.34445565938949585,
+    "kind_val_rmse": 0.2507973313331604,
+    "training_time_seconds": 86.03690576553345
+}

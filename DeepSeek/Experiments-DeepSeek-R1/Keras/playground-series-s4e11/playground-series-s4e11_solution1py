@@ -1,0 +1,107 @@
+<Code>
+import pandas as pd
+import numpy as np
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping
+
+# Load datasets
+train_df = pd.read_csv('test/playground-series-s4e11/playground-series-s4e11/train.csv')
+test_df = pd.read_csv('test/playground-series-s4e11/playground-series-s4e11/test.csv')
+
+# Save test IDs before preprocessing
+test_ids = test_df['id']
+
+# Drop irrelevant columns
+drop_cols = ['id', 'Name', 'City', 'Profession', 
+             'Academic Pressure', 'CGPA', 'Study Satisfaction']
+train_df = train_df.drop(columns=drop_cols)
+test_df = test_df.drop(columns=drop_cols)
+
+# Process binary categorical columns
+for col in ['Have you ever had suicidal thoughts ?', 'Family History of Mental Illness']:
+    train_df[col] = train_df[col].map({'Yes': 1, 'No': 0}).astype(int)
+    test_df[col] = test_df[col].map({'Yes': 1, 'No': 0}).astype(int)
+
+# Separate target variable
+y_train = train_df['Depression'].map({'e':0, 'p':1}).values
+train_df = train_df.drop(columns=['Depression'])
+
+# Define preprocessing components
+num_features = ['Age', 'Work Pressure', 'Job Satisfaction', 
+                'Work/Study Hours', 'Financial Stress']
+ordinal_features = ['Sleep Duration', 'Degree']
+nominal_features = ['Gender', 'Working Professional or Student', 'Dietary Habits']
+
+preprocessor = ColumnTransformer([
+    ('num', StandardScaler(), num_features),
+    ('ordinal', OrdinalEncoder(), ordinal_features),
+    ('nominal', OneHotEncoder(handle_unknown='ignore'), nominal_features)
+], remainder='passthrough')
+
+# Apply preprocessing
+X_train = preprocessor.fit_transform(train_df)
+X_test = preprocessor.transform(test_df)
+
+# Build neural network
+model = Sequential([
+    Dense(1024, activation='relu', input_shape=(X_train.shape[1],)),
+    Dense(768, activation='relu'),
+    Dense(128, activation='relu'),
+    Dense(1, activation='sigmoid')
+])
+
+model.compile(optimizer=Adam(),
+              loss='binary_crossentropy',
+              metrics=['accuracy'])
+
+# Train with early stopping
+history = model.fit(
+    X_train, y_train,
+    epochs=50,
+    batch_size=1024,
+    validation_split=0.2,
+    callbacks=[EarlyStopping(patience=3, restore_best_weights=True)]
+)
+
+# Generate predictions
+test_preds = (model.predict(X_test) > 0.5).astype(int).flatten()
+
+# Create submission file
+submission = pd.DataFrame({'id': test_ids, 'Depression': test_preds})
+submission.to_csv('submission.csv', index=False)
+</Code>
+
+<Error>
+Traceback (most recent call last):
+  File "/app/test/playground-series-s4e11/playground-series-s4e11_solution.py", line 48, in <module>
+    X_test = preprocessor.transform(test_df)
+  File "/usr/local/lib/python3.10/dist-packages/sklearn/utils/_set_output.py", line 316, in wrapped
+    data_to_wrap = f(self, X, *args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/sklearn/compose/_column_transformer.py", line 1096, in transform
+    Xs = self._call_func_on_transformers(
+  File "/usr/local/lib/python3.10/dist-packages/sklearn/compose/_column_transformer.py", line 897, in _call_func_on_transformers
+    return Parallel(n_jobs=self.n_jobs)(jobs)
+  File "/usr/local/lib/python3.10/dist-packages/sklearn/utils/parallel.py", line 82, in __call__
+    return super().__call__(iterable_with_config_and_warning_filters)
+  File "/usr/local/lib/python3.10/dist-packages/joblib/parallel.py", line 1986, in __call__
+    return output if self.return_generator else list(output)
+  File "/usr/local/lib/python3.10/dist-packages/joblib/parallel.py", line 1914, in _get_sequential_output
+    res = func(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/sklearn/utils/parallel.py", line 147, in __call__
+    return self.function(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/sklearn/pipeline.py", line 1519, in _transform_one
+    res = transformer.transform(X, **params.transform)
+  File "/usr/local/lib/python3.10/dist-packages/sklearn/utils/_set_output.py", line 316, in wrapped
+    data_to_wrap = f(self, X, *args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/sklearn/preprocessing/_encoders.py", line 1597, in transform
+    X_int, X_mask = self._transform(
+  File "/usr/local/lib/python3.10/dist-packages/sklearn/preprocessing/_encoders.py", line 218, in _transform
+    raise ValueError(msg)
+ValueError: Found unknown categories ['Meerut', '0', '20-21 hours', 'Have_you_ever_had_suicidal_thoughts', '50-75 hours', '9-10 hours', '60-65 hours', 'Vivan', '8-89 hours', '6 hours'] in column 0 during transform
+
+</Error>

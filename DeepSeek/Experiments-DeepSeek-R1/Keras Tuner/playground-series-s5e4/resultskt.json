@@ -1,0 +1,7 @@
+{
+    "training_rmse": 13.2644,
+    "training_loss": 175.9432,
+    "validation_rmse": 13.2281,
+    "validation_loss": 174.9839,
+    "training_time_seconds": 1178.91
+}

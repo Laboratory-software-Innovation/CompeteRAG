@@ -1,0 +1,12 @@
+{
+    "best_epoch": 1,
+    "training_time_seconds": 127.11288547515869,
+    "final_training_loss": 2.1078810691833496,
+    "final_validation_loss": 1.9715842008590698,
+    "sentiment_training_rmse": 0.30003029108047485,
+    "sentiment_validation_rmse": 0.2786684036254883,
+    "when_training_rmse": 0.24721211194992065,
+    "when_validation_rmse": 0.2346983402967453,
+    "kind_training_rmse": 0.22611019015312195,
+    "kind_validation_rmse": 0.21629934012889862
+}

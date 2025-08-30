@@ -47,8 +47,8 @@ GPT o4-mini and Deepseek-R1
 ### 1 · Clone & install
 
 ```bash
-git clone https://github.com/IllyaGY/REU.git
-cd REU
+git clone https://github.com/Laboratory-software-Innovation/CompeteRAG
+cd CompeteRAG
 pip install -r requirements.txt
 sudo pip install kaggle
 chmod 600 /home/<user>/.config/kaggle/kaggle.json
