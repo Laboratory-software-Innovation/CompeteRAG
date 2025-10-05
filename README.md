@@ -188,7 +188,7 @@ python rag.py code 1|0 <slug>
 
 ---
 ## Additional Materials
-- Collected Notebooks from Kaggle are present [here](Experiments-o4-mini/DeepLearning Notebook Solutions Retrieved.csv)
+- Collected Notebooks from Kaggle are present [here](https://github.com/Laboratory-software-Innovation/CompeteRAG/blob/main/Experiments-o4-mini/DeepLearning%20Notebook%20Solutions%20Retrieved.csv)
 - Prompts are shared in [this file](Experiments-o4-mini/Prompts.pdf)
 ## Troubleshooting
 
