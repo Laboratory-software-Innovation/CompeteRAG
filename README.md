@@ -187,7 +187,9 @@ python rag.py code 1|0 <slug>
 | `rag.py`        | Command‑line interface and glue code                                                                    |
 
 ---
-
+## Additional Materials
+- Collected Notebooks from Kaggle are present [here](Experiments-o4-mini/DeepLearning Notebook Solutions Retrieved.csv)
+- Prompts are shared in [this file](Experiments-o4-mini/Prompts.pdf)
 ## Troubleshooting
 
 - **HTTP 403 from Kaggle** → ensure you have *joined* the competition and your token is valid.
